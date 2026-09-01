@@ -1,0 +1,134 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connexion à Plugchoice",
+        "description": "Entre ton token d'accès personnel Plugchoice. Toutes les bornes accessibles avec ce token seront découvertes automatiquement.",
+        "data": {
+          "token": "Token d'accès personnel"
+        }
+      },
+      "badges": {
+        "title": "Surcharger des noms de badge (optionnel)",
+        "description": "Les noms des badges sont détectés automatiquement à partir des cartes RFID enregistrées sur Plugchoice. Utilise ceci uniquement pour surcharger un nom d'affichage côté Home Assistant.\n\nSurcharges actuelles :\n{current_badges}\n\nRenseigne un ID et un nom de badge pour ajouter/mettre à jour une surcharge, ou un ID seul dans « ID à supprimer » pour la retirer. Laisse tout vide et coche « Terminer » pour continuer, ou ajoutes-en une autre.",
+        "data": {
+          "badge_id": "ID du badge (à ajouter/modifier)",
+          "badge_name": "Nom du badge",
+          "remove_badge_id": "ID du badge à supprimer",
+          "finish": "Terminer"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Token invalide ou expiré.",
+      "no_chargers_found": "Aucune borne trouvée avec ce token.",
+      "unknown": "Erreur inattendue."
+    },
+    "abort": {
+      "already_configured": "Ce compte est déjà configuré."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Réglages Plugchoice",
+        "menu_options": {
+          "connection": "Connexion (token, intervalle)",
+          "badges": "Badges RFID nommés",
+          "load_balancing": "Répartition de puissance",
+          "priorities": "Priorités des badges",
+          "finish": "Enregistrer et fermer"
+        }
+      },
+      "connection": {
+        "title": "Réglages de connexion",
+        "data": {
+          "token": "Token d'accès personnel",
+          "scan_interval": "Intervalle de rafraîchissement par borne (secondes)"
+        }
+      },
+      "priorities": {
+        "title": "Priorités des badges (répartition de puissance)",
+        "description": "Utilisé uniquement quand plusieurs bornes chargent en même temps avec un budget partagé : le badge le plus prioritaire est rempli en premier au-delà du minimum garanti pour tous. « Priorité absolue » fait ignorer complètement le budget partagé à ce badge, qui reçoit toujours son courant maximal.\n\nPriorités actuelles :\n{current_priorities}\n\nRenseigne un ID de badge et une priorité (1-10, plus haut = servi en premier) pour l'ajouter ou la mettre à jour, avec un plafond de courant optionnel. Un ID seul dans « ID à supprimer » le retire. Laisse tout vide et coche « Terminer » pour continuer, ou ajoutes-en un autre.",
+        "data": {
+          "badge_id": "ID du badge (à ajouter/modifier)",
+          "priority": "Priorité (1-10)",
+          "max_amps": "Plafond de courant pour ce badge (A, optionnel)",
+          "unlimited": "Priorité absolue (ignore le budget partagé)",
+          "remove_badge_id": "ID du badge à supprimer",
+          "finish": "Terminer"
+        }
+      },
+      "load_balancing": {
+        "title": "Répartition de puissance (load balancing)",
+        "description": "Ajuste automatiquement la limite de charge de toutes les bornes selon un capteur de puissance (positif = consommation réseau, négatif = injection réseau). Le budget est partagé entre toutes les bornes et ajusté à la hausse comme à la baisse.",
+        "data": {
+          "load_balancing_enabled": "Activer la répartition de puissance",
+          "grid_power_entity_id": "Capteur de puissance réseau",
+          "max_grid_power_w": "Puissance réseau maximale admissible (W)",
+          "load_balancing_window_seconds": "Fenêtre de lissage (secondes)"
+        }
+      },
+      "badges": {
+        "title": "Surcharger des noms de badge",
+        "description": "Les noms des badges sont détectés automatiquement à partir des cartes RFID enregistrées sur Plugchoice. Utilise ceci uniquement pour surcharger un nom d'affichage côté Home Assistant.\n\nSurcharges actuelles :\n{current_badges}\n\nRenseigne un ID et un nom de badge pour ajouter/mettre à jour une surcharge, ou un ID seul dans « ID à supprimer » pour la retirer. Coche « Retour au menu » pour revenir.",
+        "data": {
+          "badge_id": "ID du badge (à ajouter/modifier)",
+          "badge_name": "Nom du badge",
+          "remove_badge_id": "ID du badge à supprimer",
+          "finish": "Retour au menu"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Token invalide ou expiré.",
+      "unknown": "Erreur inattendue."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_l1": { "name": "Courant L1" },
+      "current_l2": { "name": "Courant L2" },
+      "current_l3": { "name": "Courant L3" },
+      "voltage_l1": { "name": "Tension L1" },
+      "voltage_l2": { "name": "Tension L2" },
+      "voltage_l3": { "name": "Tension L3" },
+      "power": { "name": "Puissance" },
+      "energy": { "name": "Énergie totale" },
+      "current_offered": { "name": "Courant autorisé" },
+      "reference": { "name": "Référence" },
+      "plug_charge_card": { "name": "Badge Plug & Charge" },
+      "last_session_badge": { "name": "Dernier badge (session)" },
+      "current_session_energy": { "name": "Énergie (session en cours)" },
+      "current_session_duration": { "name": "Durée (session en cours)" },
+      "last_completed_session_energy": { "name": "Énergie (dernière session)" },
+      "last_completed_session_duration": { "name": "Durée (dernière session)" },
+      "badge_energy": { "name": "Énergie" },
+      "charge_point_id": { "name": "ID point de charge" },
+      "manufacturer": { "name": "Fabricant" },
+      "model_name": { "name": "Modèle" },
+      "firmware_version": { "name": "Firmware" },
+      "max_current": { "name": "Courant maximal" },
+      "last_charge_date": { "name": "Date de la dernière recharge" },
+      "charging_profile": { "name": "Profil de charge actif" },
+      "load_balancing_smoothed_power": { "name": "Puissance réseau lissée" },
+      "load_balancing_available_budget": { "name": "Budget EV disponible" }
+    },
+    "number": {
+      "charging_limit": { "name": "Limite de charge" }
+    },
+    "lock": {
+      "charger_lock": { "name": "Verrouillage" }
+    },
+    "button": {
+      "start_charging": { "name": "Démarrer la charge" },
+      "stop_charging": { "name": "Arrêter la charge" }
+    },
+    "select": {
+      "start_badge": { "name": "Badge pour démarrage" }
+    },
+    "switch": {
+      "charger_boost": { "name": "Boost" }
+    }
+  }
+}

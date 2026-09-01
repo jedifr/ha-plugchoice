@@ -1,0 +1,134 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Plugchoice",
+        "description": "Enter your Plugchoice personal access token. All chargers accessible with this token will be discovered automatically.",
+        "data": {
+          "token": "Personal access token"
+        }
+      },
+      "badges": {
+        "title": "Override badge names (optional)",
+        "description": "Badge names are detected automatically from the RFID cards registered in Plugchoice. Use this only to override a display name in Home Assistant.\n\nCurrent overrides:\n{current_badges}\n\nFill in a badge ID and name to add or update an override, or a badge ID alone in \"Remove badge ID\" to delete one. Leave everything empty and check \"Finish\" to continue, or keep adding one at a time.",
+        "data": {
+          "badge_id": "Badge ID (to add/update)",
+          "badge_name": "Badge name",
+          "remove_badge_id": "Badge ID to remove",
+          "finish": "Finish"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid or expired token.",
+      "no_chargers_found": "No chargers found with this token.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This account is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Plugchoice settings",
+        "menu_options": {
+          "connection": "Connection (token, refresh interval)",
+          "badges": "Named RFID badges",
+          "load_balancing": "Load balancing",
+          "priorities": "Badge priorities",
+          "finish": "Save and close"
+        }
+      },
+      "connection": {
+        "title": "Connection settings",
+        "data": {
+          "token": "Personal access token",
+          "scan_interval": "Refresh interval per charger (seconds)"
+        }
+      },
+      "priorities": {
+        "title": "Badge priorities (load balancing)",
+        "description": "Only used when several chargers charge at the same time with a shared budget: the highest-priority badge is filled first beyond the minimum guaranteed for everyone. \"Absolute priority\" makes a badge ignore the shared budget entirely and always get its maximum current.\n\nCurrent priorities:\n{current_priorities}\n\nFill in a badge ID and priority (1-10, higher = served first) to add or update one, with an optional current cap. A badge ID alone in \"Remove badge ID\" deletes one. Leave everything empty and check \"Finish\" to continue, or keep adding one at a time.",
+        "data": {
+          "badge_id": "Badge ID (to add/update)",
+          "priority": "Priority (1-10)",
+          "max_amps": "Current cap for this badge (A, optional)",
+          "unlimited": "Absolute priority (ignore shared budget)",
+          "remove_badge_id": "Badge ID to remove",
+          "finish": "Finish"
+        }
+      },
+      "load_balancing": {
+        "title": "Load balancing",
+        "description": "Automatically adjusts the charging limit of all chargers based on a power sensor (positive = grid consumption, negative = grid injection). The budget is shared across all chargers and adjusted both up and down.",
+        "data": {
+          "load_balancing_enabled": "Enable load balancing",
+          "grid_power_entity_id": "Grid power sensor",
+          "max_grid_power_w": "Maximum allowed grid power (W)",
+          "load_balancing_window_seconds": "Smoothing window (seconds)"
+        }
+      },
+      "badges": {
+        "title": "Override badge names",
+        "description": "Badge names are detected automatically from the RFID cards registered in Plugchoice. Use this only to override a display name in Home Assistant.\n\nCurrent overrides:\n{current_badges}\n\nFill in a badge ID and name to add or update an override, or a badge ID alone in \"Remove badge ID\" to delete one. Check \"Finish\" to go back to the menu.",
+        "data": {
+          "badge_id": "Badge ID (to add/update)",
+          "badge_name": "Badge name",
+          "remove_badge_id": "Badge ID to remove",
+          "finish": "Back to menu"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Invalid or expired token.",
+      "unknown": "Unexpected error."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_l1": { "name": "Current L1" },
+      "current_l2": { "name": "Current L2" },
+      "current_l3": { "name": "Current L3" },
+      "voltage_l1": { "name": "Voltage L1" },
+      "voltage_l2": { "name": "Voltage L2" },
+      "voltage_l3": { "name": "Voltage L3" },
+      "power": { "name": "Power" },
+      "energy": { "name": "Total energy" },
+      "current_offered": { "name": "Offered current" },
+      "reference": { "name": "Reference" },
+      "plug_charge_card": { "name": "Plug & Charge card" },
+      "last_session_badge": { "name": "Last session badge" },
+      "current_session_energy": { "name": "Energy (current session)" },
+      "current_session_duration": { "name": "Duration (current session)" },
+      "last_completed_session_energy": { "name": "Energy (last session)" },
+      "last_completed_session_duration": { "name": "Duration (last session)" },
+      "badge_energy": { "name": "Energy" },
+      "charge_point_id": { "name": "Charge point ID" },
+      "manufacturer": { "name": "Manufacturer" },
+      "model_name": { "name": "Model" },
+      "firmware_version": { "name": "Firmware" },
+      "max_current": { "name": "Max current" },
+      "last_charge_date": { "name": "Last charge date" },
+      "charging_profile": { "name": "Active charging profile" },
+      "load_balancing_smoothed_power": { "name": "Smoothed grid power" },
+      "load_balancing_available_budget": { "name": "Available EV budget" }
+    },
+    "number": {
+      "charging_limit": { "name": "Charging limit" }
+    },
+    "lock": {
+      "charger_lock": { "name": "Lock" }
+    },
+    "button": {
+      "start_charging": { "name": "Start charging" },
+      "stop_charging": { "name": "Stop charging" }
+    },
+    "select": {
+      "start_badge": { "name": "Badge for start" }
+    },
+    "switch": {
+      "charger_boost": { "name": "Boost" }
+    }
+  }
+}
