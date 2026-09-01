@@ -132,6 +132,12 @@ class PlugchoiceBoostSwitch(CoordinatorEntity[PlugchoiceChargersCoordinator], Sw
     def _current_known_limit(self) -> float | None:
         profile = self._charger_info().get("charging_profile") or {}
         limit = profile.get("limit")
+        # Restauration post-Boost en ampères uniquement : on ignore un
+        # profil exprimé en W (sinon on renverrait une valeur en watts
+        # interprétée comme des ampères par l'action charge-limit).
+        unit = str(profile.get("charging_rate_unit") or "A").upper()
+        if unit not in ("A", "AMPERE", "AMPERES"):
+            return None
         try:
             return float(limit) if limit is not None else None
         except (TypeError, ValueError):

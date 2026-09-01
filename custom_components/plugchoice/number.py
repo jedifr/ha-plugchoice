@@ -132,6 +132,12 @@ class PlugchoiceChargingLimitNumber(
         charger_info = (self.coordinator.data or {}).get(self._charger_id) or {}
         profile = charger_info.get("charging_profile") or {}
         limit = profile.get("limit")
+        # Ce slider est en ampères : un profil exprimé en W (unité OCPP
+        # possible) n'est pas comparable et ne doit pas être affiché ici
+        # (le capteur "Profil de charge actif" le montre avec son unité).
+        unit = str(profile.get("charging_rate_unit") or "A").upper()
+        if unit not in ("A", "AMPERE", "AMPERES"):
+            return None
         try:
             return float(limit) if limit is not None else None
         except (TypeError, ValueError):

@@ -1,11 +1,12 @@
 {
   "domain": "plugchoice",
   "name": "Plugchoice",
-  "codeowners": [],
+  "codeowners": ["@jedifr"],
   "config_flow": true,
-  "documentation": "https://developer.plugchoice.com",
+  "documentation": "https://github.com/jedifr/ha-plugchoice",
   "integration_type": "hub",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/jedifr/ha-plugchoice/issues",
   "requirements": [],
   "version": "0.1.0"
 }

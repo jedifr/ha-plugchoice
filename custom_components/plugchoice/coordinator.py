@@ -175,6 +175,14 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
     Assistant. Parcourt tout l'historique des transactions à chaque cycle :
     volontairement plus espacé que les autres coordinators (cf.
     BADGE_ENERGY_INTERVAL) pour limiter le nombre d'appels API.
+
+    Le total exposé pour un badge n'est jamais autorisé à diminuer d'un
+    cycle à l'autre (on conserve le maximum vu) : un cycle où une borne
+    répond en erreur ne compterait qu'une partie des transactions, et une
+    baisse ponctuelle serait interprétée par Home Assistant comme une
+    remise à zéro de compteur (faux pic dans le tableau Énergie). Si
+    AUCUNE borne ne répond, on lève UpdateFailed plutôt que d'exposer des
+    données tronquées.
     """
 
     def __init__(
@@ -191,10 +199,13 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
         )
         self._client = client
         self._chargers_coordinator = chargers_coordinator
+        # Plus haut total jamais exposé pour chaque badge (cliquet anti-retour).
+        self._cumulative: dict[str, float] = {}
 
     async def _async_update_data(self) -> dict[str, float]:
         charger_ids = list(self._chargers_coordinator.data.keys())
         totals: dict[str, float] = {}
+        any_success = False
 
         for charger_id in charger_ids:
             try:
@@ -207,6 +218,7 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 )
                 continue
 
+            any_success = True
             for transaction in transactions:
                 badge_id = transaction.get("id_tag")
                 kwh = transaction.get("total_kwh")
@@ -218,7 +230,16 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
                     continue
                 totals[badge_id] = totals.get(badge_id, 0.0) + kwh_value
 
-        return totals
+        if charger_ids and not any_success:
+            raise UpdateFailed(
+                "Aucune borne n'a répondu pour l'agrégation d'énergie par badge"
+            )
+
+        # Cliquet : on ne laisse jamais un total redescendre (cf. docstring).
+        for badge_id, value in totals.items():
+            self._cumulative[badge_id] = max(self._cumulative.get(badge_id, 0.0), value)
+
+        return dict(self._cumulative)
 
 
 class PlugchoiceMeterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
