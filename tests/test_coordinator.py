@@ -11,7 +11,31 @@ from custom_components.plugchoice.coordinator import (
     PlugchoiceBadgeEnergyCoordinator,
     PlugchoiceChargersCoordinator,
     PlugchoiceMeterCoordinator,
+    connector_error_code,
+    connector_status,
 )
+
+
+@pytest.mark.parametrize(
+    ("charger_info", "expected"),
+    [
+        ({"_detail": {"connectors": [{"status": "Available"}]}}, "Available"),
+        ({"connectors": [{"state": "Charging"}]}, "Charging"),
+        ({"_detail": {"connector": {"status": "SuspendedEV"}}}, "SuspendedEV"),
+        ({"_detail": {"status": "Preparing"}}, "Preparing"),
+        ({"_detail": {"connectors": []}}, None),
+        ({}, None),
+    ],
+)
+def test_connector_status_parsing(charger_info, expected):
+    assert connector_status(charger_info) == expected
+
+
+def test_connector_error_code_parsing():
+    assert connector_error_code(
+        {"_detail": {"connectors": [{"status": "Faulted", "error_code": "GroundFailure"}]}}
+    ) == "GroundFailure"
+    assert connector_error_code({}) is None
 
 
 async def test_chargers_enrichment_ok(hass, api_client):
@@ -26,6 +50,8 @@ async def test_chargers_enrichment_ok(hass, api_client):
     assert charger["transactions"]
     assert charger["last_completed_transaction"]["total_kwh"] == 5.0
     assert coordinator.badge_directory == {"BADGE_A": "Alice"}
+    # Objet borne complet -> statut du connecteur exploitable
+    assert connector_status(charger) == "Available"
 
 
 async def test_chargers_enrichment_partial_failure(hass, api_client):

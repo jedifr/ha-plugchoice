@@ -111,6 +111,7 @@
       "max_current": { "name": "Courant maximal" },
       "last_charge_date": { "name": "Date de la dernière recharge" },
       "charging_profile": { "name": "Profil de charge actif" },
+      "connector_status": { "name": "Statut" },
       "load_balancing_smoothed_power": { "name": "Puissance réseau lissée" },
       "load_balancing_available_budget": { "name": "Budget EV disponible" }
     },

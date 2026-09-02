@@ -27,6 +27,53 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Statuts OCPP (StatusNotification) sur lesquels un démarrage à distance n'a
+# pas de sens : la borne le refusera (ou ce serait sans effet).
+NON_STARTABLE_CONNECTOR_STATUSES = frozenset(
+    {"charging", "suspendedev", "finishing", "faulted", "unavailable", "reserved"}
+)
+
+
+def connector_status(charger_info: dict[str, Any]) -> str | None:
+    """Extrait le statut OCPP du (premier) connecteur d'une borne.
+
+    L'emplacement exact du champ n'étant pas documenté côté Plugchoice, on
+    tente plusieurs formes : liste `connectors`, objet `connector`, ou champ
+    de statut au niveau de la borne. Retourne la chaîne brute (ex.
+    "Available", "SuspendedEV") ou None si introuvable.
+    """
+    detail = charger_info.get("_detail") or {}
+    for source in (charger_info, detail):
+        connectors = source.get("connectors")
+        if isinstance(connectors, list) and connectors:
+            first = connectors[0]
+            if isinstance(first, dict):
+                status = first.get("status") or first.get("state")
+                if status:
+                    return str(status)
+        connector = source.get("connector")
+        if isinstance(connector, dict):
+            status = connector.get("status") or connector.get("state")
+            if status:
+                return str(status)
+        for key in ("connector_status", "ocpp_status", "status", "state"):
+            value = source.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return None
+
+
+def connector_error_code(charger_info: dict[str, Any]) -> str | None:
+    """Code d'erreur OCPP du connecteur, si exposé (ex. "NoError", "GroundFailure")."""
+    detail = charger_info.get("_detail") or {}
+    for source in (charger_info, detail):
+        connectors = source.get("connectors")
+        if isinstance(connectors, list) and connectors and isinstance(connectors[0], dict):
+            code = connectors[0].get("error_code") or connectors[0].get("errorCode")
+            if code:
+                return str(code)
+    return None
+
 
 class PlugchoiceChargersCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Maintient la liste à jour des bornes accessibles avec ce token.
@@ -91,7 +138,8 @@ class PlugchoiceChargersCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
         échouent, on le signale une fois en warning (les entités passeront
         sinon à "indisponible" sans cause visible).
         """
-        plug_charge, lock_status, transactions, charging_profile = await asyncio.gather(
+        detail, plug_charge, lock_status, transactions, charging_profile = await asyncio.gather(
+            self._client.async_get_charger(charger_id),
             self._client.async_get_plug_charge_status(charger_id),
             self._client.async_get_lock_status(charger_id),
             self._client.async_list_charger_transactions(charger_id),
@@ -100,6 +148,15 @@ class PlugchoiceChargersCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
         )
 
         succeeded = 0
+
+        if isinstance(detail, dict):
+            # Objet borne complet (peut contenir l'état des connecteurs,
+            # absent de la liste /chargers). Rangé à part pour ne pas
+            # écraser les clés déjà enrichies.
+            charger_info["_detail"] = detail
+            succeeded += 1
+        elif isinstance(detail, Exception):
+            _LOGGER.debug("Détail borne %s indisponible: %s", charger_id, detail)
 
         if isinstance(plug_charge, dict):
             charger_info["current_card"] = plug_charge.get("current_card")

@@ -40,6 +40,8 @@ from .coordinator import (
     PlugchoiceBadgeEnergyCoordinator,
     PlugchoiceChargersCoordinator,
     PlugchoiceMeterCoordinator,
+    connector_error_code,
+    connector_status,
 )
 from .load_balancer import PlugchoiceLoadBalancer
 
@@ -286,6 +288,57 @@ class PlugchoiceLastChargeDateSensor(
         return _parse_iso(transaction.get("stopped_at") or transaction.get("started_at"))
 
 
+class PlugchoiceConnectorStatusSensor(
+    CoordinatorEntity[PlugchoiceChargersCoordinator], SensorEntity
+):
+    """Statut OCPP du connecteur (Available, Preparing, Charging, SuspendedEV…).
+
+    Répond d'un coup d'œil à « pourquoi la charge ne démarre pas » :
+    `SuspendedEV` = voiture pleine / ne demande rien, `Finishing` = session
+    en clôture, `Available` = prêt pour un démarrage.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "connector_status"
+    _attr_name = "Statut"
+    _attr_icon = "mdi:ev-station"
+
+    def __init__(
+        self,
+        coordinator: PlugchoiceChargersCoordinator,
+        charger_id: str,
+        device_name: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._charger_id = charger_id
+        self._attr_unique_id = f"{charger_id}_connector_status"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, charger_id)},
+            name=device_name,
+            manufacturer="Plugchoice",
+            model="Borne de recharge",
+            configuration_url=f"https://app.plugchoice.com/chargers/{charger_id}",
+        )
+
+    def _charger_info(self) -> dict[str, Any]:
+        return (self.coordinator.data or {}).get(self._charger_id) or {}
+
+    @property
+    def native_value(self) -> str | None:
+        return connector_status(self._charger_info())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        charger_info = self._charger_info()
+        transaction = charger_info.get("last_transaction") or {}
+        return {
+            "error_code": connector_error_code(charger_info),
+            "session_in_progress": bool(
+                transaction.get("started_at") and not transaction.get("stopped_at")
+            ),
+        }
+
+
 class PlugchoiceChargingProfileSensor(
     CoordinatorEntity[PlugchoiceChargersCoordinator], SensorEntity
 ):
@@ -493,6 +546,9 @@ async def async_setup_entry(
         )
         entities.append(
             PlugchoiceChargingProfileSensor(chargers_coordinator, charger_id, charger_name)
+        )
+        entities.append(
+            PlugchoiceConnectorStatusSensor(chargers_coordinator, charger_id, charger_name)
         )
         async_add_entities(entities)
         known_charger_ids.add(charger_id)

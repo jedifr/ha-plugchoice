@@ -24,7 +24,11 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import PlugchoiceApiError, PlugchoiceClient
 from .const import DEFAULT_CONNECTOR_ID, DOMAIN
-from .coordinator import PlugchoiceChargersCoordinator
+from .coordinator import (
+    NON_STARTABLE_CONNECTOR_STATUSES,
+    PlugchoiceChargersCoordinator,
+    connector_status,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,6 +132,23 @@ class PlugchoiceStartChargingButton(_PlugchoiceActionButton):
         self._selected_start_badge = selected_start_badge
 
     async def async_press(self) -> None:
+        # Garde-fous : un démarrage à distance est refusé par la borne s'il
+        # y a déjà une session, ou si le connecteur n'est pas prêt. On le
+        # dit clairement plutôt que de laisser passer un "rejected" opaque.
+        charger_info = self._charger_info()
+        transaction = charger_info.get("last_transaction") or {}
+        if transaction.get("started_at") and not transaction.get("stopped_at"):
+            raise HomeAssistantError(
+                "Une session est déjà en cours sur cette borne. Utilise « Arrêter "
+                "la charge », ou débranche/rebranche le véhicule."
+            )
+        status = connector_status(charger_info)
+        if status and status.lower() in NON_STARTABLE_CONNECTOR_STATUSES:
+            raise HomeAssistantError(
+                f"La borne n'est pas prête pour un démarrage (statut : {status}). "
+                "« SuspendedEV » = véhicule plein ou qui ne demande pas de charge."
+            )
+
         id_token = (
             self._selected_start_badge.get(self._charger_id)
             or self._charger_info().get("current_card")

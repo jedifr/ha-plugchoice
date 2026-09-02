@@ -20,6 +20,9 @@ def api_client() -> MagicMock:
     client = MagicMock()
     client.async_get_user = AsyncMock(return_value={"uuid": "user-1", "name": "Compte test"})
     client.async_list_chargers = AsyncMock(return_value=[{"uuid": "c1", "reference": "Borne 1"}])
+    client.async_get_charger = AsyncMock(
+        return_value={"uuid": "c1", "connectors": [{"connector_id": 1, "status": "Available"}]}
+    )
     client.async_get_plug_charge_status = AsyncMock(
         return_value={"current_card": "BADGE_A", "enabled": True}
     )

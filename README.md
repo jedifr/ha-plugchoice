@@ -56,7 +56,7 @@ l'intégration.
 | `sensor.py` | Tous les capteurs : mesures temps réel, infos borne, sessions, énergie par badge, diagnostic load balancing. |
 | `number.py` | Slider "Limite de charge" par borne (action `charge-limit`). |
 | `lock.py` | Verrou "borne disponible/indisponible" (`settings/cable-lock`). |
-| `button.py` | Boutons "Démarrer/Arrêter la charge" (`actions/start` / `actions/stop`) et "Effacer la limite de charge" (`actions/clear-charge-limit`, désactivé par défaut). |
+| `button.py` | Boutons "Démarrer/Arrêter la charge" (`actions/start` / `actions/stop`, avec garde-fou : refus explicite si une session est déjà active ou si le connecteur n'est pas prêt) et "Effacer la limite de charge" (`actions/clear-charge-limit`, désactivé par défaut). |
 | `select.py` | Sélecteur de badge à utiliser pour démarrer une charge. |
 | `switch.py` | Interrupteur "Boost" (puissance maximale immédiate, ignore le budget partagé). |
 | `load_balancer.py` | Régulateur de répartition dynamique de puissance entre bornes, piloté par un capteur HA externe (compteur réseau). |
@@ -67,7 +67,9 @@ l'intégration.
   Plugchoice), transactions.
 - Capteurs temps réel (courants, tensions, puissance, énergie), infos borne
   (fabricant, modèle, firmware, ID, courant max), sessions (en cours /
-  dernière terminée), profil de charge actif (lu depuis les logs OCPP).
+  dernière terminée), profil de charge actif (lu depuis les logs OCPP),
+  **statut du connecteur** (`Available` / `Preparing` / `Charging` /
+  `SuspendedEV` / `Finishing`…).
 - Contrôle à distance : limite de charge, verrouillage, démarrage/arrêt de
   session, choix du badge de démarrage.
 - **Répartition de puissance (load balancing)** : budget partagé entre
