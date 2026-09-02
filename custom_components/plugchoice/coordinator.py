@@ -7,6 +7,7 @@ Deux niveaux :
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -15,7 +16,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import PlugchoiceApiError, PlugchoiceAuthError, PlugchoiceClient
-from .const import BADGE_ENERGY_INTERVAL, DISCOVERY_INTERVAL, DOMAIN, SENSOR_MAP
+from .const import (
+    ACTIVE_CHARGING_POWER_THRESHOLD,
+    BADGE_ENERGY_INTERVAL,
+    DISCOVERY_INTERVAL,
+    DOMAIN,
+    METER_IDLE_INTERVAL_MULTIPLIER,
+    SENSOR_MAP,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,101 +67,101 @@ class PlugchoiceChargersCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
                 continue
             result[str(charger_id)] = charger
 
-        # Complète chaque borne avec son badge RFID actuellement configuré
-        # pour le Plug & Charge. Appel séparé par borne : on isole les
-        # erreurs individuelles pour ne pas faire échouer toute la
-        # découverte si une seule borne répond mal (ex: fonctionnalité
-        # non supportée sur ce modèle).
-        for charger_id, charger_info in result.items():
-            try:
-                plug_charge = await self._client.async_get_plug_charge_status(charger_id)
-            except PlugchoiceApiError as err:
-                _LOGGER.debug(
-                    "Impossible de récupérer le statut Plug & Charge de %s: %s",
-                    charger_id,
-                    err,
-                )
-                continue
+        # Enrichit chaque borne (Plug & Charge, verrouillage, transactions,
+        # profil de charge). Les 4 appels d'une borne sont lancés en
+        # parallèle, et toutes les bornes sont traitées en parallèle : sur
+        # un compte à plusieurs bornes, ça évite de sérialiser des dizaines
+        # d'appels bloquants à chaque cycle de découverte.
+        await asyncio.gather(
+            *(self._enrich_charger(cid, info) for cid, info in result.items())
+        )
+
+        self.badge_directory = await self._build_badge_directory()
+
+        return result
+
+    async def _enrich_charger(
+        self, charger_id: str, charger_info: dict[str, Any]
+    ) -> None:
+        """Complète charger_info avec les données annexes d'une borne.
+
+        Chaque appel est isolé : une borne qui ne supporte pas une
+        fonctionnalité (ou une 5xx transitoire de l'API) ne doit pas
+        empêcher les autres données d'être récupérées. Si TOUS les appels
+        échouent, on le signale une fois en warning (les entités passeront
+        sinon à "indisponible" sans cause visible).
+        """
+        plug_charge, lock_status, transactions, charging_profile = await asyncio.gather(
+            self._client.async_get_plug_charge_status(charger_id),
+            self._client.async_get_lock_status(charger_id),
+            self._client.async_list_charger_transactions(charger_id),
+            self._client.async_get_latest_charging_profile(charger_id),
+            return_exceptions=True,
+        )
+
+        succeeded = 0
+
+        if isinstance(plug_charge, dict):
             charger_info["current_card"] = plug_charge.get("current_card")
             charger_info["plug_charge_enabled"] = plug_charge.get("enabled")
+            succeeded += 1
+        elif isinstance(plug_charge, Exception):
+            _LOGGER.debug("Plug & Charge %s indisponible: %s", charger_id, plug_charge)
 
-        # Complète chaque borne avec son statut de verrouillage.
-        for charger_id, charger_info in result.items():
-            try:
-                lock_status = await self._client.async_get_lock_status(charger_id)
-            except PlugchoiceApiError as err:
-                _LOGGER.debug(
-                    "Impossible de récupérer le statut de verrouillage de %s: %s",
-                    charger_id,
-                    err,
-                )
-                continue
+        if isinstance(lock_status, dict):
             charger_info["lock_enabled"] = lock_status.get("enabled")
             charger_info["lock_interactable"] = lock_status.get("interactable")
+            succeeded += 1
+        elif isinstance(lock_status, Exception):
+            _LOGGER.debug("Verrouillage %s indisponible: %s", charger_id, lock_status)
 
-        # Complète chaque borne avec sa dernière transaction ("last_transaction",
-        # potentiellement en cours) ET la dernière transaction terminée
-        # ("last_completed_transaction", toujours avec un stopped_at) : les
-        # deux peuvent différer si une nouvelle session a démarré avant que
-        # l'ancienne soit consultée. Un seul appel API par borne (la liste
-        # complète), traité localement pour extraire les deux.
-        for charger_id, charger_info in result.items():
-            try:
-                transactions = await self._client.async_list_charger_transactions(charger_id)
-            except PlugchoiceApiError as err:
-                _LOGGER.debug(
-                    "Impossible de récupérer les transactions de %s: %s", charger_id, err
-                )
-                continue
-
-            if not transactions:
-                charger_info["last_transaction"] = None
-                charger_info["last_completed_transaction"] = None
-                continue
-
-            transactions.sort(key=lambda t: t.get("started_at") or "", reverse=True)
-            charger_info["last_transaction"] = transactions[0]
-
-            completed = [t for t in transactions if t.get("stopped_at")]
+        if isinstance(transactions, list):
+            succeeded += 1
+            # Conservé pour PlugchoiceBadgeEnergyCoordinator, qui réutilise
+            # cette liste au lieu de re-paginer l'historique via l'API.
+            charger_info["transactions"] = transactions
+            ordered = sorted(
+                transactions, key=lambda t: t.get("started_at") or "", reverse=True
+            )
+            charger_info["last_transaction"] = ordered[0] if ordered else None
+            completed = [t for t in ordered if t.get("stopped_at")]
             charger_info["last_completed_transaction"] = completed[0] if completed else None
+        elif isinstance(transactions, Exception):
+            _LOGGER.debug("Transactions %s indisponibles: %s", charger_id, transactions)
 
-        # Complète chaque borne avec le dernier profil de charge (limite)
-        # appliqué, lu depuis les logs OCPP. Erreur isolée par borne comme
-        # pour les autres enrichissements.
-        for charger_id, charger_info in result.items():
-            try:
-                charger_info["charging_profile"] = (
-                    await self._client.async_get_latest_charging_profile(charger_id)
-                )
-            except PlugchoiceApiError as err:
-                _LOGGER.debug(
-                    "Impossible de récupérer le profil de charge de %s: %s", charger_id, err
-                )
-                continue
+        if isinstance(charging_profile, dict) or charging_profile is None:
+            charger_info["charging_profile"] = charging_profile
+            succeeded += 1
+        elif isinstance(charging_profile, Exception):
+            _LOGGER.debug("Profil de charge %s indisponible: %s", charger_id, charging_profile)
 
-        # Reconstruit l'annuaire des badges à partir des cartes RFID
-        # enregistrées sur Plugchoice, site par site (les cartes sont
-        # rattachées à un site, pas à une borne précise).
-        directory: dict[str, str] = {}
+        if succeeded == 0:
+            _LOGGER.warning(
+                "Aucune donnée annexe récupérée pour la borne %s ce cycle "
+                "(API Plugchoice en erreur ?)",
+                charger_id,
+            )
+
+    async def _build_badge_directory(self) -> dict[str, str]:
+        """Reconstruit l'annuaire {id_token: nom} à partir des cartes RFID des sites."""
         try:
             sites = await self._client.async_list_sites()
         except PlugchoiceApiError as err:
             _LOGGER.debug("Impossible de lister les sites pour les badges: %s", err)
-            sites = []
+            return self.badge_directory
 
-        for site in sites:
-            site_id = site.get("uuid")
-            if not site_id:
-                continue
-            try:
-                cards = await self._client.async_list_cards(site_id)
-            except PlugchoiceApiError as err:
+        site_ids = [s.get("uuid") for s in sites if s.get("uuid")]
+        cards_per_site = await asyncio.gather(
+            *(self._client.async_list_cards(site_id) for site_id in site_ids),
+            return_exceptions=True,
+        )
+
+        directory: dict[str, str] = {}
+        for site_id, cards in zip(site_ids, cards_per_site):
+            if isinstance(cards, Exception):
                 # Cause fréquente : droits "sensitive" non accordés sur ce
-                # site pour ce token (cf. permissions.sensitive de l'API
-                # Locations) — on log en debug et on continue les autres sites.
-                _LOGGER.debug(
-                    "Impossible de lister les badges du site %s: %s", site_id, err
-                )
+                # site pour ce token (cf. permissions.sensitive de l'API).
+                _LOGGER.debug("Badges du site %s indisponibles: %s", site_id, cards)
                 continue
             for card in cards:
                 id_token = card.get("id_token")
@@ -161,9 +169,11 @@ class PlugchoiceChargersCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
                 if id_token and name:
                     directory[id_token] = name
 
-        self.badge_directory = directory
-
-        return result
+        # Si ce cycle n'a rien ramené (toutes les requêtes cards en erreur)
+        # mais qu'on avait déjà un annuaire, on le conserve.
+        if not directory and self.badge_directory:
+            return self.badge_directory
+        return directory
 
 
 class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
@@ -172,9 +182,12 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
     Expose un dict {badge_id: kwh_cumulés}. La valeur ne peut que croître
     (nouvelle transaction = ajout), ce qui la rend directement utilisable
     comme source "total_increasing" dans le tableau Énergie de Home
-    Assistant. Parcourt tout l'historique des transactions à chaque cycle :
-    volontairement plus espacé que les autres coordinators (cf.
-    BADGE_ENERGY_INTERVAL) pour limiter le nombre d'appels API.
+    Assistant.
+
+    Ne fait AUCUN appel API : réutilise les listes de transactions déjà
+    récupérées par PlugchoiceChargersCoordinator (clé "transactions" de
+    chaque borne). L'intervalle propre reste plus espacé (cf.
+    BADGE_ENERGY_INTERVAL) car l'agrégation elle-même est un peu coûteuse.
 
     Le total exposé pour un badge n'est jamais autorisé à diminuer d'un
     cycle à l'autre (on conserve le maximum vu) : un cycle où une borne
@@ -188,7 +201,6 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
     def __init__(
         self,
         hass: HomeAssistant,
-        client: PlugchoiceClient,
         chargers_coordinator: PlugchoiceChargersCoordinator,
     ) -> None:
         super().__init__(
@@ -197,25 +209,21 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
             name=f"{DOMAIN}_badge_energy",
             update_interval=BADGE_ENERGY_INTERVAL,
         )
-        self._client = client
         self._chargers_coordinator = chargers_coordinator
         # Plus haut total jamais exposé pour chaque badge (cliquet anti-retour).
         self._cumulative: dict[str, float] = {}
 
     async def _async_update_data(self) -> dict[str, float]:
-        charger_ids = list(self._chargers_coordinator.data.keys())
+        chargers = self._chargers_coordinator.data or {}
         totals: dict[str, float] = {}
         any_success = False
 
-        for charger_id in charger_ids:
-            try:
-                transactions = await self._client.async_list_charger_transactions(charger_id)
-            except PlugchoiceApiError as err:
-                _LOGGER.debug(
-                    "Impossible de lister les transactions de %s pour l'énergie par badge: %s",
-                    charger_id,
-                    err,
-                )
+        for charger_info in chargers.values():
+            transactions = charger_info.get("transactions")
+            if transactions is None:
+                # Le chargers_coordinator n'a pas pu récupérer l'historique
+                # de cette borne à son dernier cycle : on l'ignore ici
+                # plutôt que de compter une valeur partielle.
                 continue
 
             any_success = True
@@ -230,9 +238,9 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
                     continue
                 totals[badge_id] = totals.get(badge_id, 0.0) + kwh_value
 
-        if charger_ids and not any_success:
+        if chargers and not any_success:
             raise UpdateFailed(
-                "Aucune borne n'a répondu pour l'agrégation d'énergie par badge"
+                "Aucun historique de transactions disponible pour l'énergie par badge"
             )
 
         # Cliquet : on ne laisse jamais un total redescendre (cf. docstring).
@@ -243,7 +251,16 @@ class PlugchoiceBadgeEnergyCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
 
 class PlugchoiceMeterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Interroge Plugchoice et expose les dernières valeurs par clé de capteur."""
+    """Interroge Plugchoice et expose les dernières valeurs par clé de capteur.
+
+    L'intervalle est adaptatif : au rythme configuré quand la borne charge
+    activement, mais ralenti (x METER_IDLE_INTERVAL_MULTIPLIER) quand elle
+    est au repos — inutile d'interroger toutes les 60 s une borne sans
+    session. Une borne repérée au repos garde donc jusqu'à
+    scan_interval x multiplicateur de latence avant que le début d'une
+    nouvelle session n'apparaisse : compromis volontaire pour tenir sous
+    la limite de requêtes/h de l'API sur les comptes à plusieurs bornes.
+    """
 
     def __init__(
         self,
@@ -252,11 +269,15 @@ class PlugchoiceMeterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         charger_id: str,
         scan_interval_seconds: int,
     ) -> None:
+        self._active_interval = timedelta(seconds=scan_interval_seconds)
+        self._idle_interval = timedelta(
+            seconds=scan_interval_seconds * METER_IDLE_INTERVAL_MULTIPLIER
+        )
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{charger_id}",
-            update_interval=timedelta(seconds=scan_interval_seconds),
+            update_interval=self._active_interval,
         )
         self._client = client
         self.charger_id = charger_id
@@ -289,4 +310,10 @@ class PlugchoiceMeterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             latest_timestamp = item.get("timestamp", latest_timestamp)
 
         latest["last_update"] = latest_timestamp
+
+        # Ajuste la cadence du prochain cycle selon l'activité mesurée.
+        power = latest.get("power")
+        is_active = power is not None and power > ACTIVE_CHARGING_POWER_THRESHOLD
+        self.update_interval = self._active_interval if is_active else self._idle_interval
+
         return latest

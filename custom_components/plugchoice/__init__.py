@@ -43,7 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     chargers_coordinator = PlugchoiceChargersCoordinator(hass, client)
     await chargers_coordinator.async_config_entry_first_refresh()
 
-    badge_energy_coordinator = PlugchoiceBadgeEnergyCoordinator(hass, client, chargers_coordinator)
+    badge_energy_coordinator = PlugchoiceBadgeEnergyCoordinator(hass, chargers_coordinator)
     await badge_energy_coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {

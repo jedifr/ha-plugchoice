@@ -19,6 +19,12 @@ METER_VALUES_WINDOW_MINUTES = 10
 DEFAULT_SCAN_INTERVAL_SECONDS = 60
 MIN_SCAN_INTERVAL_SECONDS = 30
 
+# Quand une borne est au repos (aucune charge active), son coordinator de
+# relevés ralentit à scan_interval x ce facteur, pour économiser des
+# appels API (cf. limite ~500 req/h). Le rythme nominal reprend dès qu'une
+# charge active est détectée.
+METER_IDLE_INTERVAL_MULTIPLIER = 5
+
 # Intervalle de la liste des bornes (découverte), volontairement bien plus
 # espacé : la liste des bornes d'un compte change rarement.
 DISCOVERY_INTERVAL = timedelta(minutes=10)

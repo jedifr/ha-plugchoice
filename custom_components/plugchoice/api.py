@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import async_timeout
@@ -27,7 +27,8 @@ def _parse_log_params(raw: Any) -> dict[str, Any] | None:
     D'après le schéma officiel, "params" est une chaîne JSON (ex: '[]'),
     pas un objet déjà structuré. Elle peut représenter soit directement
     l'objet de la requête OCPP, soit un tableau (forme brute d'appel OCPP)
-    dont on extrait le premier élément objet trouvé.
+    du type [MessageTypeId, UniqueId, Action, Payload] dont on extrait le
+    dernier élément objet — le payload OCPP, qui vient en fin de tableau.
     """
     if raw is None:
         return None
@@ -258,7 +259,7 @@ class PlugchoiceClient:
 
     async def async_get_latest_meter_values(self, charger_id: str) -> list[dict[str, Any]]:
         """Récupère les relevés de compteur sur une fenêtre glissante récente."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         date_from = (now - timedelta(minutes=METER_VALUES_WINDOW_MINUTES)).strftime(
             "%Y-%m-%d %H:%M:%S"
         )

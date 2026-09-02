@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -123,7 +124,14 @@ class PlugchoiceConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     # ré-ajouté, on abandonne plutôt que de dupliquer les
                     # appareils (utile si l'utilisateur régénère et confond
                     # ajout / mise à jour du token).
-                    await self.async_set_unique_id(user.get("uuid") or user.get("email") or token)
+                    # uuid/email en priorité ; en dernier recours un hash
+                    # du token (jamais le token en clair comme identifiant).
+                    unique_id = (
+                        user.get("uuid")
+                        or user.get("email")
+                        or hashlib.sha256(token.encode()).hexdigest()[:16]
+                    )
+                    await self.async_set_unique_id(unique_id)
                     self._abort_if_unique_id_configured()
 
                     self._token = token
