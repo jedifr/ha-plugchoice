@@ -1,12 +1,12 @@
 """Client HTTP minimal pour l'API Plugchoice."""
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import async_timeout
-from aiohttp import ClientResponseError, ClientSession
+from aiohttp import ClientError, ClientSession
 
 from .const import API_BASE_URL, CHARGE_LIMIT_STACK_LEVEL, METER_VALUES_WINDOW_MINUTES
 
@@ -280,7 +280,7 @@ class PlugchoiceClient:
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
-            async with async_timeout.timeout(TIMEOUT):
+            async with asyncio.timeout(TIMEOUT):
                 async with self._session.request(
                     method, url, headers=self._headers(), params=params, json=json_body
                 ) as response:
@@ -296,5 +296,7 @@ class PlugchoiceClient:
                     if response.status == 204 or not await response.text():
                         return {}
                     return await response.json()
-        except ClientResponseError as err:
+        except TimeoutError as err:
+            raise PlugchoiceApiError(f"Délai dépassé ({TIMEOUT}s) sur {method} {url}") from err
+        except ClientError as err:
             raise PlugchoiceApiError(str(err)) from err
