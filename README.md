@@ -1,16 +1,49 @@
 # Intégration Home Assistant — Plugchoice
 
+[![hacs][hacs-badge]][hacs-url]
+[![release][release-badge]][release-url]
+[![Validate][validate-badge]][validate-url]
+[![Tests][tests-badge]][tests-url]
+
 Intégration personnalisée (`custom_component`) pour l'API Plugchoice (bornes
 de recharge VE, OCPP 1.6J), avec découverte automatique, contrôle à distance
 et répartition dynamique de puissance (load balancing) multi-bornes.
 
 ## Installation
 
-Copier `custom_components/plugchoice` dans le dossier `custom_components` de
-la configuration Home Assistant, redémarrer HA, puis ajouter l'intégration
-via **Paramètres → Appareils et services → Ajouter une intégration →
-Plugchoice**. Seul un token d'accès personnel Plugchoice est requis à
-l'installation — les bornes et badges sont découverts automatiquement.
+### Via HACS (recommandé)
+
+1. HACS → menu ⋮ (en haut à droite) → **Dépôts personnalisés**
+2. Dépôt : `https://github.com/jedifr/ha-plugchoice` — Catégorie : **Integration** → **Ajouter**
+3. Chercher **Plugchoice** dans la liste HACS → **Télécharger**
+4. **Redémarrer Home Assistant**
+5. **Paramètres → Appareils et services → Ajouter une intégration → Plugchoice**
+
+[![Ouvrir dans HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=jedifr&repository=ha-plugchoice&category=integration)
+
+### Manuellement
+
+Copier le dossier `custom_components/plugchoice` dans le dossier
+`custom_components` de la configuration Home Assistant, puis redémarrer HA et
+ajouter l'intégration via **Paramètres → Appareils et services → Ajouter une
+intégration → Plugchoice**.
+
+### Configuration
+
+Seul un **token d'accès personnel Plugchoice** est requis à l'installation —
+les bornes et badges sont découverts automatiquement. Les réglages
+(intervalle de rafraîchissement, badges nommés, répartition de puissance,
+priorités des badges) se modifient ensuite via le bouton **Configurer** de
+l'intégration.
+
+[hacs-badge]: https://img.shields.io/badge/HACS-Custom-41BDF5.svg
+[hacs-url]: https://github.com/hacs/integration
+[release-badge]: https://img.shields.io/github/v/release/jedifr/ha-plugchoice
+[release-url]: https://github.com/jedifr/ha-plugchoice/releases
+[validate-badge]: https://github.com/jedifr/ha-plugchoice/actions/workflows/validate.yml/badge.svg
+[validate-url]: https://github.com/jedifr/ha-plugchoice/actions/workflows/validate.yml
+[tests-badge]: https://github.com/jedifr/ha-plugchoice/actions/workflows/tests.yml/badge.svg
+[tests-url]: https://github.com/jedifr/ha-plugchoice/actions/workflows/tests.yml
 
 ## Architecture
 
