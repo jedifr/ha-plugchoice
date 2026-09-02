@@ -70,6 +70,23 @@ async def test_timeout_becomes_api_error():
                 await client.async_get_user()
 
 
+async def test_set_charging_limit_body_matches_working_profile():
+    """Corps = profil confirmé fonctionnel : stackLevel 4 + numberPhases 3."""
+    url = f"{API_BASE_URL}/chargers/c1/actions/charge-limit"
+    with aioresponses() as mock:
+        mock.post(url, payload={"status": "Accepted"})
+        async with ClientSession() as session:
+            client = PlugchoiceClient(session, "token")
+            await client.async_set_charging_limit("c1", 1, 16)
+        call = mock.requests[("POST", URL(url))][0]
+    assert call.kwargs["json"] == {
+        "connector_id": 1,
+        "limit": 16,
+        "stack_level": 4,
+        "number_phases": 3,
+    }
+
+
 async def test_clear_charging_limit_targets_our_stack_level():
     url = f"{API_BASE_URL}/chargers/c1/actions/clear-charge-limit"
     with aioresponses() as mock:
@@ -79,8 +96,8 @@ async def test_clear_charging_limit_targets_our_stack_level():
             result = await client.async_clear_charging_limit("c1", 1)
         call = mock.requests[("POST", URL(url))][0]
     assert result == {"status": "Accepted"}
-    # ne cible que le stackLevel de nos propres commandes (10), pas tous les profils
-    assert call.kwargs["json"] == {"connector_id": 1, "stack_level": 10}
+    # ne cible que le stackLevel de nos propres commandes, pas tous les profils
+    assert call.kwargs["json"] == {"connector_id": 1, "stack_level": 4}
 
 
 async def test_clear_charging_limit_all_profiles_when_stack_none():

@@ -8,7 +8,12 @@ from typing import Any
 
 from aiohttp import ClientError, ClientSession
 
-from .const import API_BASE_URL, CHARGE_LIMIT_STACK_LEVEL, METER_VALUES_WINDOW_MINUTES
+from .const import (
+    API_BASE_URL,
+    CHARGE_LIMIT_STACK_LEVEL,
+    DEFAULT_CHARGING_PHASES,
+    METER_VALUES_WINDOW_MINUTES,
+)
 
 TIMEOUT = 15
 
@@ -238,20 +243,23 @@ class PlugchoiceClient:
         connector_id: int,
         limit: float,
         stack_level: int = CHARGE_LIMIT_STACK_LEVEL,
+        number_phases: int = DEFAULT_CHARGING_PHASES,
     ) -> dict[str, Any] | None:
         """Envoie une nouvelle limite de charge (en A) à une borne.
 
-        Le stackLevel est volontairement élevé par défaut (voir
-        CHARGE_LIMIT_STACK_LEVEL) : en OCPP, le profil au stackLevel le
-        plus haut l'emporte sur les autres — sans ça, une commande
-        pourtant acceptée peut se voir silencieusement recouverte par un
-        profil existant à un niveau plus bas (ex: réglage fait depuis le
-        portail ou l'app Plugchoice).
+        Reproduit le profil confirmé fonctionnel par test réel :
+        `stackLevel=4 / TxProfile / Absolute / chargingRateUnit=A /
+        numberPhases=3`. Le stackLevel doit passer au-dessus des profils
+        existants (défaut de site, réglage portail/app) sans quoi la
+        commande peut être silencieusement recouverte ; `number_phases`
+        est explicité pour éviter qu'un profil sans cette info soit
+        appliqué sur une seule phase.
         """
         body: dict[str, Any] = {
             "connector_id": connector_id,
             "limit": limit,
             "stack_level": stack_level,
+            "number_phases": number_phases,
         }
         return await self._request(
             "POST", f"{API_BASE_URL}/chargers/{charger_id}/actions/charge-limit", json_body=body

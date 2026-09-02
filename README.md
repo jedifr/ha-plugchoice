@@ -123,17 +123,19 @@ sur une borne, sans lien avec le code une fois les causes suivantes
 - ❌ Limite électrique réelle du circuit (le circuit supporte le plein 32A)
 - ❌ Réglage physique/local sur la borne elle-même (configurée à 32A)
 
-Une hypothèse **non formellement confirmée** a ensuite été implémentée :
-un conflit de `stackLevel` OCPP, où nos commandes (sans `stack_level`
-explicite à l'origine) pouvaient être recouvertes par un autre profil actif
-à un niveau supérieur. Toutes nos commandes utilisent désormais un
-`stack_level` fixe et élevé (`CHARGE_LIMIT_STACK_LEVEL = 10` dans
-`const.py`). **Cette hypothèse n'a pas été confirmée par un test de
-reproduction en conditions réelles après correctif** — les derniers logs
-fournis par l'utilisateur montraient un fonctionnement stable et normal du
-régulateur (32A tenu en continu sur une borne, oscillations dynamiques
-cohérentes sur l'autre), mais sans reproduire spécifiquement le scénario du
-bug via une nouvelle activation du Boost.
+Une hypothèse a ensuite été implémentée : un conflit de `stackLevel` OCPP,
+où nos commandes (sans `stack_level` explicite à l'origine) pouvaient être
+recouvertes par un autre profil actif à un niveau supérieur.
+
+Le profil de référence **confirmé fonctionnel par test réel** est :
+`stackLevel = 4`, `chargingProfilePurpose = TxProfile`,
+`chargingProfileKind = Absolute`, `chargingRateUnit = A`,
+`numberPhases = 3`. Nos commandes (`api.py:async_set_charging_limit`)
+reproduisent désormais exactement ce corps :
+`CHARGE_LIMIT_STACK_LEVEL = 4` + `number_phases = 3` explicite (`const.py`).
+Des valeurs de stackLevel plus élevées (10) ne semblaient pas toujours
+honorées ; une commande sans `numberPhases` explicite risquait par ailleurs
+d'être appliquée sur une seule phase.
 
 **Si ce problème réapparaît** : activer les logs de debug
 (`logger: logs: custom_components.plugchoice: debug`), reproduire le

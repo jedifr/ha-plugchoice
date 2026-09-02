@@ -73,13 +73,21 @@ ACTIVE_CHARGING_POWER_THRESHOLD = 200
 # on suppose une seule prise par borne, cas le plus courant.
 DEFAULT_CONNECTOR_ID = 1
 
-# stackLevel OCPP utilisé pour nos commandes de limite de charge. Une
-# valeur volontairement élevée : en OCPP, le profil au stackLevel le plus
-# haut l'emporte sur les autres profils actifs (ex: un profil par défaut
-# du site, ou un réglage fait depuis le portail/l'app à un niveau plus
-# bas) — sans ça, nos commandes peuvent être silencieusement recouvertes
-# peu après avoir été acceptées.
-CHARGE_LIMIT_STACK_LEVEL = 10
+# stackLevel OCPP utilisé pour nos commandes de limite de charge. En OCPP,
+# le profil au stackLevel le plus haut l'emporte ; il faut donc passer
+# au-dessus des profils existants (défaut de site, réglage portail/app).
+# Valeur retenue : 4 — un profil `stackLevel=4 / TxProfile / Absolute /
+# numberPhases=3` a été confirmé fonctionnel par test réel, là où des
+# valeurs plus élevées (10) ne semblaient pas toujours honorées par la
+# borne / Plugchoice.
+CHARGE_LIMIT_STACK_LEVEL = 4
+
+# numberPhases envoyé dans nos profils de limite : le parc est triphasé et
+# le profil de référence testé utilise 3. Une voiture qui charge en
+# monophasé n'est pas gênée (la borne n'énergise que ce que la voiture
+# demande) ; ça évite en revanche qu'un profil sans numberPhases explicite
+# soit interprété sur une seule phase.
+DEFAULT_CHARGING_PHASES = 3
 
 # Signal dispatcher émis par le load balancer à chaque réévaluation, pour
 # que les capteurs diagnostic (puissance lissée, budget EV) se mettent à
