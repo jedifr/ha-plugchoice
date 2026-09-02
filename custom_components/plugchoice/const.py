@@ -60,6 +60,11 @@ DEFAULT_MAX_CHARGING_CURRENT = 32
 # connus (aucun profil de charge n'a encore été observé sur cette borne).
 DEFAULT_ASSUMED_VOLTAGE = 230
 DEFAULT_ASSUMED_PHASES = 3
+# Une phase qui porte plus que ce courant (A) est considérée "utilisée" par
+# le véhicule. Sert à détecter une charge mono/bi/triphasée réelle à partir
+# des relevés L1/L2/L3, plutôt que de supposer 3 phases (ce qui triple la
+# puissance estimée d'un véhicule monophasé et le bride à tort).
+PHASE_ACTIVE_CURRENT_THRESHOLD = 2.0
 # Seuil de puissance (W) au-delà duquel une borne est considérée "en
 # charge active" et donc éligible à une part du budget partagé.
 ACTIVE_CHARGING_POWER_THRESHOLD = 200

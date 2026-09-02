@@ -145,10 +145,11 @@ moment du problème — ça confirmera ou infirmera définitivement l'hypothèse
 
 - Le "Boost" et l'état "borne boostée" sont en mémoire uniquement (non
   persistés) : ils repassent à l'état par défaut au redémarrage de HA.
-- Le régulateur suppose 3 phases et 230V par défaut quand l'information
-  réelle n'est pas encore connue pour une borne (aucun profil de charge
-  observé) — peut sous-estimer le courant disponible pour une borne
-  monophasée tant qu'aucune donnée réelle n'a été captée.
+- Le régulateur déduit le nombre de phases réellement utilisées par le
+  véhicule à partir des courants mesurés L1/L2/L3 (un véhicule monophasé
+  n'est donc plus bridé comme s'il tirait sur 3 phases). Tant qu'aucun
+  courant n'est encore mesuré, il retombe sur le `numberPhases` du dernier
+  profil OCPP, puis sur 3 phases / 230 V par défaut.
 - Pas de gestion de file d'attente/priorité si le budget ne couvre même
   pas le minimum matériel (6A) pour toutes les bornes actives simultanément
   — chacune reçoit quand même 6A, le budget peut alors être dépassé.

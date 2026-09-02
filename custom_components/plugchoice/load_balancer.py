@@ -53,6 +53,7 @@ from .const import (
     LOAD_BALANCING_EVAL_INTERVAL,
     LOAD_BALANCING_MIN_CURRENT_DELTA,
     MIN_CHARGING_CURRENT,
+    PHASE_ACTIVE_CURRENT_THRESHOLD,
     SIGNAL_LOAD_BALANCING_UPDATE,
 )
 from .coordinator import PlugchoiceChargersCoordinator, PlugchoiceMeterCoordinator
@@ -208,6 +209,31 @@ class PlugchoiceLoadBalancer:
         transaction = charger_info.get("last_transaction") or {}
         return transaction.get("id_tag") or charger_info.get("current_card")
 
+    def _active_phase_count(
+        self, meter_data: dict[str, Any], profile: dict[str, Any] | None
+    ) -> int:
+        """Nombre de phases réellement utilisées par le véhicule en charge.
+
+        Un véhicule monophasé branché sur une borne triphasée ne tire que
+        sur L1 : convertir son budget (W) en courant (A) en supposant 3
+        phases surestime d'un facteur 3 la puissance qu'il consomme réellement
+        et le bride donc à tort (ex: L1=32 A, L2=L3=0). On compte les phases
+        qui portent effectivement du courant ; repli sur le numberPhases du
+        dernier profil OCPP, puis sur la valeur par défaut.
+        """
+        measured = sum(
+            1
+            for key in ("current_l1", "current_l2", "current_l3")
+            if self._safe_float(meter_data.get(key), default=0.0)
+            > PHASE_ACTIVE_CURRENT_THRESHOLD
+        )
+        if measured:
+            return measured
+        return max(
+            self._safe_int((profile or {}).get("number_phases"), default=DEFAULT_ASSUMED_PHASES),
+            1,
+        )
+
     async def _build_active_chargers(
         self, chargers: dict[str, dict[str, Any]]
     ) -> tuple[list[_ActiveCharger], float]:
@@ -228,9 +254,7 @@ class PlugchoiceLoadBalancer:
                 voltage = DEFAULT_ASSUMED_VOLTAGE
 
             profile = charger_info.get("charging_profile") or {}
-            phases = max(
-                self._safe_int(profile.get("number_phases"), default=DEFAULT_ASSUMED_PHASES), 1
-            )
+            phases = self._active_phase_count(meter_data, profile)
 
             charger_max = self._safe_float(
                 charger_info.get("max_current"), default=DEFAULT_MAX_CHARGING_CURRENT
