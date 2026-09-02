@@ -15,6 +15,7 @@ from typing import Any
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo
@@ -22,7 +23,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import PlugchoiceApiError, PlugchoiceClient
-from .const import DOMAIN
+from .const import DEFAULT_CONNECTOR_ID, DOMAIN
 from .coordinator import PlugchoiceChargersCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ async def async_setup_entry(
                     chargers_coordinator, client, charger_id, name, selected_start_badge
                 ),
                 PlugchoiceStopChargingButton(chargers_coordinator, client, charger_id, name),
+                PlugchoiceClearLimitButton(chargers_coordinator, client, charger_id, name),
             ]
         )
         known_charger_ids.add(charger_id)
@@ -177,4 +179,47 @@ class PlugchoiceStopChargingButton(_PlugchoiceActionButton):
         except PlugchoiceApiError as err:
             _LOGGER.error("Échec de l'arrêt de la charge sur %s: %s", self._charger_id, err)
             raise
+        await self.coordinator.async_request_refresh()
+
+
+class PlugchoiceClearLimitButton(_PlugchoiceActionButton):
+    """Retire le profil de limite de charge posé par cette intégration.
+
+    Utile pour repartir d'un état propre : la borne revient à son
+    comportement par défaut (ou au profil de site/portail s'il en existe
+    un). Le load balancing, s'il est actif, réappliquera une limite
+    calculée au cycle suivant.
+
+    ⚠️ Repose sur l'endpoint `actions/clear-charge-limit`, NON confirmé par
+    la documentation Plugchoice (cf. api.py).
+    """
+
+    _attr_translation_key = "clear_limit"
+    _attr_name = "Effacer la limite de charge"
+    _attr_icon = "mdi:broom"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, *args: Any) -> None:
+        super().__init__(*args, unique_suffix="clear_limit")
+
+    async def async_press(self) -> None:
+        try:
+            result = await self._client.async_clear_charging_limit(
+                self._charger_id, DEFAULT_CONNECTOR_ID
+            )
+        except PlugchoiceApiError as err:
+            _LOGGER.error(
+                "Échec de l'effacement de la limite de charge sur %s: %s",
+                self._charger_id,
+                err,
+            )
+            raise
+
+        status = str((result or {}).get("status") or "").lower()
+        if status and status not in ("accepted", "ok", "success"):
+            raise HomeAssistantError(
+                f"La borne a refusé l'effacement de la limite (statut: {status})."
+            )
+
         await self.coordinator.async_request_refresh()

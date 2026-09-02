@@ -122,7 +122,8 @@
     },
     "button": {
       "start_charging": { "name": "Start charging" },
-      "stop_charging": { "name": "Stop charging" }
+      "stop_charging": { "name": "Stop charging" },
+      "clear_limit": { "name": "Clear charging limit" }
     },
     "select": {
       "start_badge": { "name": "Badge for start" }

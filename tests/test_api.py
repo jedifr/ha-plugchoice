@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 from aiohttp import ClientSession
 from aioresponses import aioresponses
+from yarl import URL
 
 from custom_components.plugchoice.api import (
     PlugchoiceApiError,
@@ -67,6 +68,30 @@ async def test_timeout_becomes_api_error():
             client = PlugchoiceClient(session, "token")
             with pytest.raises(PlugchoiceApiError):
                 await client.async_get_user()
+
+
+async def test_clear_charging_limit_targets_our_stack_level():
+    url = f"{API_BASE_URL}/chargers/c1/actions/clear-charge-limit"
+    with aioresponses() as mock:
+        mock.post(url, payload={"status": "Accepted"})
+        async with ClientSession() as session:
+            client = PlugchoiceClient(session, "token")
+            result = await client.async_clear_charging_limit("c1", 1)
+        call = mock.requests[("POST", URL(url))][0]
+    assert result == {"status": "Accepted"}
+    # ne cible que le stackLevel de nos propres commandes (10), pas tous les profils
+    assert call.kwargs["json"] == {"connector_id": 1, "stack_level": 10}
+
+
+async def test_clear_charging_limit_all_profiles_when_stack_none():
+    url = f"{API_BASE_URL}/chargers/c1/actions/clear-charge-limit"
+    with aioresponses() as mock:
+        mock.post(url, payload={})
+        async with ClientSession() as session:
+            client = PlugchoiceClient(session, "token")
+            await client.async_clear_charging_limit("c1", 1, stack_level=None)
+        call = mock.requests[("POST", URL(url))][0]
+    assert call.kwargs["json"] == {"connector_id": 1}
 
 
 async def test_list_chargers_follows_pagination():

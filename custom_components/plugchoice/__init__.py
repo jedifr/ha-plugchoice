@@ -6,15 +6,18 @@ connaître ou saisir leurs UUID.
 """
 from __future__ import annotations
 
+import logging
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_TOKEN, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import PlugchoiceClient
+from .api import PlugchoiceApiError, PlugchoiceClient
 from .const import (
     CONF_LOAD_BALANCING_ENABLED,
     CONF_SCAN_INTERVAL,
+    DEFAULT_CONNECTOR_ID,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
 )
@@ -24,6 +27,8 @@ from .coordinator import (
     PlugchoiceMeterCoordinator,
 )
 from .load_balancer import PlugchoiceLoadBalancer
+
+_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -92,6 +97,45 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Recharge l'entrée quand ses options changent (ex: nouveau token, intervalle)."""
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Nettoyage à la suppression de l'intégration.
+
+    Retire de chaque borne le profil de limite de charge posé par
+    l'intégration (stackLevel dédié), pour ne pas laisser une borne bridée
+    par une limite « fantôme » après désinstallation. Best-effort : appelé
+    uniquement à la suppression (pas au simple rechargement/redémarrage),
+    et toute erreur est seulement journalisée.
+
+    ⚠️ Utilise l'endpoint `actions/clear-charge-limit`, non confirmé par la
+    documentation Plugchoice.
+    """
+    session = async_get_clientsession(hass)
+    client = PlugchoiceClient(session, entry.data[CONF_TOKEN])
+    try:
+        chargers = await client.async_list_chargers()
+    except PlugchoiceApiError as err:
+        _LOGGER.warning(
+            "Nettoyage à la suppression : impossible de lister les bornes (%s). "
+            "Une limite de charge posée par l'intégration peut subsister sur "
+            "certaines bornes ; la retirer via le portail Plugchoice si besoin.",
+            err,
+        )
+        return
+
+    for charger in chargers:
+        charger_id = charger.get("uuid") or charger.get("id")
+        if charger_id is None:
+            continue
+        try:
+            await client.async_clear_charging_limit(str(charger_id), DEFAULT_CONNECTOR_ID)
+        except PlugchoiceApiError as err:
+            _LOGGER.warning(
+                "Nettoyage à la suppression : échec du retrait de la limite sur %s (%s)",
+                charger_id,
+                err,
+            )
 
 
 async def async_ensure_meter_coordinator(

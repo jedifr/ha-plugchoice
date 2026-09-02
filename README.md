@@ -56,7 +56,7 @@ l'intégration.
 | `sensor.py` | Tous les capteurs : mesures temps réel, infos borne, sessions, énergie par badge, diagnostic load balancing. |
 | `number.py` | Slider "Limite de charge" par borne (action `charge-limit`). |
 | `lock.py` | Verrou "borne disponible/indisponible" (`settings/cable-lock`). |
-| `button.py` | Boutons "Démarrer/Arrêter la charge" (`actions/start` / `actions/stop`). |
+| `button.py` | Boutons "Démarrer/Arrêter la charge" (`actions/start` / `actions/stop`) et "Effacer la limite de charge" (`actions/clear-charge-limit`, désactivé par défaut). |
 | `select.py` | Sélecteur de badge à utiliser pour démarrer une charge. |
 | `switch.py` | Interrupteur "Boost" (puissance maximale immédiate, ignore le budget partagé). |
 | `load_balancer.py` | Régulateur de répartition dynamique de puissance entre bornes, piloté par un capteur HA externe (compteur réseau). |
@@ -91,6 +91,7 @@ utilisateur réel et fonctionne de manière fiable.** Les autres n'ont pas
 | Endpoint utilisé | Statut de confirmation |
 |---|---|
 | `POST /chargers/{id}/actions/charge-limit` | ✅ Confirmé par test réel (corrigé une fois depuis `actions/set-limit`, qui était faux) |
+| `POST /chargers/{id}/actions/clear-charge-limit` | ⚠️ Déduit par symétrie avec `actions/charge-limit`, jamais testé. Utilisé par le bouton "Effacer la limite de charge" (désactivé par défaut) et au retrait de l'intégration (`async_remove_entry`). |
 | `POST /chargers/{id}/actions/start` | Confirmé par la doc officielle (schéma exact) |
 | `POST /chargers/{id}/actions/stop` | ⚠️ Déduit par analogie avec `actions/start`, jamais testé |
 | `GET/POST /chargers/{id}/settings/cable-lock` | ⚠️ Déduit par analogie avec `settings/plug-charge`, jamais testé |

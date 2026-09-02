@@ -257,6 +257,35 @@ class PlugchoiceClient:
             "POST", f"{API_BASE_URL}/chargers/{charger_id}/actions/charge-limit", json_body=body
         )
 
+    async def async_clear_charging_limit(
+        self,
+        charger_id: str,
+        connector_id: int | None = None,
+        stack_level: int | None = CHARGE_LIMIT_STACK_LEVEL,
+    ) -> dict[str, Any] | None:
+        """Retire un profil de limite de charge posé par cette intégration (OCPP ClearChargingProfile).
+
+        ⚠️ Endpoint NON CONFIRMÉ par la documentation Plugchoice — déduit par
+        symétrie avec `actions/charge-limit` (le seul endpoint d'action
+        confirmé). À tester sur une borne non critique avant de s'y fier.
+
+        Par défaut, on ne cible que le stackLevel de nos propres commandes
+        (CHARGE_LIMIT_STACK_LEVEL) : un profil défini côté portail/app
+        Plugchoice ou un défaut de site (stackLevel différent) n'est pas
+        touché. Passer stack_level=None pour effacer tous les profils du
+        connecteur (à utiliser avec prudence).
+        """
+        body: dict[str, Any] = {}
+        if connector_id is not None:
+            body["connector_id"] = connector_id
+        if stack_level is not None:
+            body["stack_level"] = stack_level
+        return await self._request(
+            "POST",
+            f"{API_BASE_URL}/chargers/{charger_id}/actions/clear-charge-limit",
+            json_body=body,
+        )
+
     async def async_get_latest_meter_values(self, charger_id: str) -> list[dict[str, Any]]:
         """Récupère les relevés de compteur sur une fenêtre glissante récente."""
         now = datetime.now(timezone.utc)
