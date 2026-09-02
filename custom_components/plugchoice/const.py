@@ -73,14 +73,19 @@ ACTIVE_CHARGING_POWER_THRESHOLD = 200
 # on suppose une seule prise par borne, cas le plus courant.
 DEFAULT_CONNECTOR_ID = 1
 
-# stackLevel OCPP utilisé pour nos commandes de limite de charge. En OCPP,
-# le profil au stackLevel le plus haut l'emporte ; il faut donc passer
-# au-dessus des profils existants (défaut de site, réglage portail/app).
-# Valeur retenue : 4 — un profil `stackLevel=4 / TxProfile / Absolute /
-# numberPhases=3` a été confirmé fonctionnel par test réel, là où des
-# valeurs plus élevées (10) ne semblaient pas toujours honorées par la
-# borne / Plugchoice.
+# stackLevel demandé dans nos commandes de limite de charge.
+# NOTE : Plugchoice écrase cette valeur à 3 sur l'endpoint
+# `actions/charge-limit` (constaté sur profil réellement posé). On la
+# transmet quand même (au cas où ce comportement changerait), mais elle est
+# aujourd'hui sans effet — impossible via cet endpoint de passer au-dessus
+# d'un profil de site qui serait à un stackLevel >= 3.
 CHARGE_LIMIT_STACK_LEVEL = 4
+
+# Plugchoice fixe la validité de chaque profil `charge-limit` à
+# startSchedule + 3 min (validTo constaté). On réémet donc la même limite
+# avant expiration, même si la cible n'a pas changé, sinon la borne repasse
+# sans limite toutes les ~3 min (chute périodique de la limite observée).
+LOAD_BALANCING_PROFILE_REFRESH_SECONDS = 120
 
 # numberPhases envoyé dans nos profils de limite : le parc est triphasé et
 # le profil de référence testé utilise 3. Une voiture qui charge en

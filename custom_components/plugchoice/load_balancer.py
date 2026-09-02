@@ -52,6 +52,7 @@ from .const import (
     DEFAULT_MAX_CHARGING_CURRENT,
     LOAD_BALANCING_EVAL_INTERVAL,
     LOAD_BALANCING_MIN_CURRENT_DELTA,
+    LOAD_BALANCING_PROFILE_REFRESH_SECONDS,
     MIN_CHARGING_CURRENT,
     PHASE_ACTIVE_CURRENT_THRESHOLD,
     SIGNAL_LOAD_BALANCING_UPDATE,
@@ -103,6 +104,9 @@ class PlugchoiceLoadBalancer:
         # du capteur choisi.
         self._samples: deque[tuple[float, float]] = deque()
         self._last_sent_limits: dict[str, float] = {}
+        # Horodatage (monotone) du dernier envoi réussi par borne : sert à
+        # réémettre le profil avant son expiration côté Plugchoice (~3 min).
+        self._last_sent_at: dict[str, float] = {}
         # Bornes actives lors du cycle précédent, pour détecter une fin de
         # session (et y couper automatiquement le mode Boost éventuel).
         self._previously_active_ids: set[str] = set()
@@ -402,6 +406,8 @@ class PlugchoiceLoadBalancer:
             # Sans ça, le capteur "Profil de charge actif" (et le slider
             # "Limite de charge") ne refléteraient la nouvelle valeur
             # qu'au prochain cycle naturel de découverte (jusqu'à 10 min).
+            # On ne rafraîchit que sur un vrai changement, pas sur une
+            # simple réémission de maintien (même valeur).
             await self._chargers_coordinator.async_request_refresh()
 
     def _distribute_budget(
@@ -440,15 +446,36 @@ class PlugchoiceLoadBalancer:
         return targets
 
     async def _send_if_needed(self, charger_id: str, target_current: float) -> bool:
-        """Envoie la nouvelle limite si elle diffère assez de la dernière envoyée."""
+        """Envoie la limite si elle a changé, OU si le profil précédent va expirer.
+
+        Plugchoice donne à chaque profil `charge-limit` une validité de
+        ~3 min ; sans réémission, la borne repasse sans limite entre deux
+        changements de cible. On renvoie donc la même valeur toutes les
+        LOAD_BALANCING_PROFILE_REFRESH_SECONDS pour maintenir le profil actif.
+
+        Retourne True uniquement sur un vrai changement de cible (pour ne
+        déclencher un rafraîchissement du coordinator que dans ce cas) ;
+        une simple réémission de maintien retourne False.
+        """
         last_sent = self._last_sent_limits.get(charger_id)
+        last_at = self._last_sent_at.get(charger_id)
+        changed = (
+            last_sent is None
+            or abs(target_current - last_sent) >= LOAD_BALANCING_MIN_CURRENT_DELTA
+        )
+        stale = (
+            last_at is None
+            or (time.monotonic() - last_at) >= LOAD_BALANCING_PROFILE_REFRESH_SECONDS
+        )
         _LOGGER.debug(
-            "Load balancing: borne %s — cible=%sA (dernière envoyée: %sA)",
+            "Load balancing: borne %s — cible=%sA (dernière=%sA, changement=%s, à réémettre=%s)",
             charger_id,
             target_current,
             last_sent,
+            changed,
+            stale,
         )
-        if last_sent is not None and abs(target_current - last_sent) < LOAD_BALANCING_MIN_CURRENT_DELTA:
+        if not changed and not stale:
             return False
 
         try:
@@ -467,8 +494,8 @@ class PlugchoiceLoadBalancer:
         status = str((result or {}).get("status") or "").lower()
         if status and status not in ("accepted", "ok", "success"):
             # La borne a répondu mais a refusé la commande (ex: "Rejected").
-            # On ne met PAS à jour last_sent_limits, pour retenter au
-            # prochain cycle plutôt que de considérer ça comme acquis.
+            # On ne met à jour ni la valeur ni l'horodatage, pour retenter
+            # au prochain cycle plutôt que de considérer ça comme acquis.
             _LOGGER.warning(
                 "Load balancing: la borne %s a refusé la limite %sA (statut: %s)",
                 charger_id,
@@ -478,8 +505,9 @@ class PlugchoiceLoadBalancer:
             return False
 
         self._last_sent_limits[charger_id] = target_current
+        self._last_sent_at[charger_id] = time.monotonic()
         _LOGGER.debug("Load balancing: %sA envoyés à la borne %s", target_current, charger_id)
-        return True
+        return changed
 
     @staticmethod
     def _safe_float(value: Any, default: float) -> float:

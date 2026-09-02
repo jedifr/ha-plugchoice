@@ -33,6 +33,38 @@ def test_active_phase_count(meter, profile, expected):
     assert _lb()._active_phase_count(meter, profile) == expected
 
 
+async def test_send_if_needed_refreshes_before_profile_expiry():
+    """La même limite est réémise avant expiration (~3 min) du profil Plugchoice."""
+    lb = _lb()
+    lb._client.async_set_charging_limit = AsyncMock(return_value={"status": "Accepted"})
+
+    # 1er envoi : vrai changement
+    assert await lb._send_if_needed("c1", 16) is True
+    assert lb._client.async_set_charging_limit.await_count == 1
+
+    # même cible juste après : rien
+    assert await lb._send_if_needed("c1", 16) is False
+    assert lb._client.async_set_charging_limit.await_count == 1
+
+    # profil sur le point d'expirer -> réémission (retourne False : pas un changement)
+    lb._last_sent_at["c1"] -= 10_000
+    assert await lb._send_if_needed("c1", 16) is False
+    assert lb._client.async_set_charging_limit.await_count == 2
+
+    # vrai changement de cible
+    assert await lb._send_if_needed("c1", 24) is True
+    assert lb._client.async_set_charging_limit.await_count == 3
+
+
+async def test_send_if_needed_rejection_retries_next_cycle():
+    lb = _lb()
+    lb._client.async_set_charging_limit = AsyncMock(return_value={"status": "Rejected"})
+    assert await lb._send_if_needed("c1", 16) is False
+    assert "c1" not in lb._last_sent_at  # pas mémorisé -> retenté au cycle suivant
+    assert await lb._send_if_needed("c1", 16) is False
+    assert lb._client.async_set_charging_limit.await_count == 2
+
+
 def test_single_phase_car_not_over_throttled():
     """Un véhicule monophasé doit pouvoir atteindre 32 A si le budget le permet."""
     lb = _lb()

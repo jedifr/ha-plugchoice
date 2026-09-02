@@ -103,45 +103,38 @@ borne non critique) avant de s'y fier en production, et corriger dans
 `api.py` si une 404 ou un comportement inattendu apparaît (voir l'historique
 git pour un exemple de correction de ce type).
 
-## 🐛 Bug non formellement refermé : chute occasionnelle et inexpliquée de la limite de charge
+## Chute périodique de la limite de charge (identifiée)
 
-Au cours du développement, une chute inattendue de la limite de charge vers
-une valeur basse (8A puis 16A observés) a été constatée à plusieurs reprises
-sur une borne, sans lien avec le code une fois les causes suivantes
-**éliminées une par une avec confirmation de l'utilisateur** :
+Une chute régulière de la limite vers une valeur basse a été observée à
+plusieurs reprises. Cause identifiée sur un profil réellement posé :
+**Plugchoice fixe la validité de chaque profil `actions/charge-limit` à
+`startSchedule + 3 min`** (`validTo` constaté). Comme le régulateur ne
+réémettait la limite que sur un changement de cible ≥ 1 A, un profil stable
+expirait au bout de 3 min et la borne repassait sans limite jusqu'au cycle
+suivant → oscillation.
 
-- ❌ Plafond de badge configuré dans les priorités (corrigé : les bornes
-  exemptées — Boost ou priorité absolue — ignorent désormais tout plafond)
-- ❌ Condition de course entre le switch Boost et le cycle du régulateur
-  (corrigé : revérification de l'exemption juste avant l'envoi)
-- ❌ Fausse détection de fin de session sur un creux de puissance
-  transitoire (corrigé : ne coupe le Boost que si `stopped_at` est
-  réellement renseigné)
-- ❌ Module "Power Management" natif de Plugchoice (non licencié sur le
-  compte testé — exclu avec certitude)
-- ❌ Groupe Plugchoice avec limite configurée (aucun groupe configuré)
-- ❌ Limite électrique réelle du circuit (le circuit supporte le plein 32A)
-- ❌ Réglage physique/local sur la borne elle-même (configurée à 32A)
+**Correctif** : le régulateur réémet désormais la même limite toutes les
+`LOAD_BALANCING_PROFILE_REFRESH_SECONDS` (120 s) pour maintenir le profil
+actif, même si la cible n'a pas bougé.
 
-Une hypothèse a ensuite été implémentée : un conflit de `stackLevel` OCPP,
-où nos commandes (sans `stack_level` explicite à l'origine) pouvaient être
-recouvertes par un autre profil actif à un niveau supérieur.
+### Autres observations sur `actions/charge-limit`
 
-Le profil de référence **confirmé fonctionnel par test réel** est :
-`stackLevel = 4`, `chargingProfilePurpose = TxProfile`,
-`chargingProfileKind = Absolute`, `chargingRateUnit = A`,
-`numberPhases = 3`. Nos commandes (`api.py:async_set_charging_limit`)
-reproduisent désormais exactement ce corps :
-`CHARGE_LIMIT_STACK_LEVEL = 4` + `number_phases = 3` explicite (`const.py`).
-Des valeurs de stackLevel plus élevées (10) ne semblaient pas toujours
-honorées ; une commande sans `numberPhases` explicite risquait par ailleurs
-d'être appliquée sur une seule phase.
+- **`stackLevel`** : Plugchoice **écrase à 3** la valeur envoyée
+  (`CHARGE_LIMIT_STACK_LEVEL` est transmis mais sans effet). Impossible via
+  cet endpoint de passer au-dessus d'un profil de site à un stackLevel ≥ 3.
+- **`number_phases`** : le champ **est** accepté et appliqué
+  (`numberPhases: 3` dans le profil résultant). On l'envoie explicitement
+  pour éviter qu'un profil soit interprété sur une seule phase.
+- Le slider « Limite de charge » et le Boost posent aussi un profil à durée
+  de vie de 3 min ; **sans load balancing actif, leur limite manuelle
+  disparaît au bout de ~3 min** (pas encore de réémission côté entités).
 
-**Si ce problème réapparaît** : activer les logs de debug
-(`logger: logs: custom_components.plugchoice: debug`), reproduire le
-scénario, et chercher dans les journaux OCPP du portail Plugchoice
-(filtrés sur `SetChargingProfile`) le `stackLevel` du profil qui "gagne" au
-moment du problème — ça confirmera ou infirmera définitivement l'hypothèse.
+### Causes précédemment écartées (avec confirmation utilisateur)
+
+Plafond de badge, condition de course Boost/régulateur, fausse détection de
+fin de session, module « Power Management » natif de Plugchoice, groupe
+Plugchoice, limite réelle du circuit, réglage local de la borne — toutes
+exclues.
 
 ## Autres limitations connues
 
