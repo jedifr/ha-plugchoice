@@ -55,6 +55,9 @@ async def test_number_set_value_registers_manual_override():
     client.async_set_charging_limit = AsyncMock(return_value={"status": "Accepted"})
     overrides: dict = {}
     entity = PlugchoiceChargingLimitNumber(coordinator, client, "c1", "Borne 1", overrides)
+    # Entité non ajoutée à hass dans ce test unitaire : on n'exerce pas la
+    # vraie écriture d'état, seulement l'enregistrement de l'override.
+    entity.async_write_ha_state = MagicMock()
 
     await entity.async_set_native_value(24)
 
