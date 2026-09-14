@@ -232,6 +232,9 @@ class PlugchoiceChargingLimitNumber(
         self._fallback_value = value
         self._fallback_set_at = time.monotonic()
         self.async_write_ha_state()
-        # Rafraîchit le profil de charge peu après pour refléter la
-        # confirmation (ou le rejet) de la borne dans le capteur diagnostic.
+        # Rafraîchit le profil de charge pour refléter la confirmation (ou
+        # le rejet) de la borne dans le capteur diagnostic. Un second
+        # rafraîchissement différé rattrape le cas où celui-ci arrive
+        # avant que Plugchoice n'ait indexé la commande dans ses journaux.
         await self.coordinator.async_request_refresh()
+        self.coordinator.async_request_delayed_refresh()

@@ -1,6 +1,7 @@
 """Tests des coordinators (enrichissement parallèle, cliquet énergie, intervalle adaptatif)."""
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -146,3 +147,22 @@ async def test_meter_interval_idle(hass, power):
     coordinator = PlugchoiceMeterCoordinator(hass, _meter_client(power), "c1", 60)
     await coordinator._async_update_data()
     assert coordinator.update_interval.total_seconds() == 300
+
+
+async def test_delayed_refresh_fires_after_the_given_delay(hass, api_client):
+    """Un second rafraîchissement doit avoir lieu après le délai, en plus de l'immédiat.
+
+    Reproduit la correction du capteur "Profil de charge actif" qui pouvait
+    rester figé : le rafraîchissement immédiat après une commande arrive
+    parfois avant que Plugchoice n'ait indexé le nouveau profil.
+    """
+    coordinator = PlugchoiceChargersCoordinator(hass, api_client)
+    coordinator.async_request_refresh = AsyncMock()
+
+    coordinator.async_request_delayed_refresh(delay=0.01)
+    coordinator.async_request_refresh.assert_not_called()
+
+    await asyncio.sleep(0.05)
+    await hass.async_block_till_done()
+
+    coordinator.async_request_refresh.assert_awaited_once()

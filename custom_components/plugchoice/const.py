@@ -87,6 +87,15 @@ CHARGE_LIMIT_STACK_LEVEL = 4
 # sans limite toutes les ~3 min (chute périodique de la limite observée).
 LOAD_BALANCING_PROFILE_REFRESH_SECONDS = 120
 
+# Après une commande de limite de charge, le rafraîchissement immédiat du
+# coordinator arrive parfois avant que Plugchoice n'ait indexé le nouveau
+# profil dans ses journaux OCPP : les capteurs ("Profil de charge actif",
+# "Limite de charge") relisent alors encore l'ANCIENNE valeur, qui peut
+# rester figée indéfiniment si rien ne redéclenche un rafraîchissement
+# ensuite. On planifie donc un second rafraîchissement différé, pour
+# rattraper la valeur une fois le journal Plugchoice à jour.
+DELAYED_REFRESH_SECONDS = 10
+
 # numberPhases envoyé dans nos profils de limite : le parc est triphasé et
 # le profil de référence testé utilise 3. Une voiture qui charge en
 # monophasé n'est pas gênée (la borne n'énergise que ce que la voiture

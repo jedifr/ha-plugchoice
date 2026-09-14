@@ -460,8 +460,13 @@ class PlugchoiceLoadBalancer:
             # "Limite de charge") ne refléteraient la nouvelle valeur
             # qu'au prochain cycle naturel de découverte (jusqu'à 10 min).
             # On ne rafraîchit que sur un vrai changement, pas sur une
-            # simple réémission de maintien (même valeur).
+            # simple réémission de maintien (même valeur). Le second
+            # rafraîchissement différé rattrape le cas où ce premier arrive
+            # avant que Plugchoice n'ait indexé la commande dans ses
+            # journaux OCPP (sinon le capteur peut rester figé sur
+            # l'ancienne valeur jusqu'au prochain cycle naturel, 10 min).
             await self._chargers_coordinator.async_request_refresh()
+            self._chargers_coordinator.async_request_delayed_refresh()
 
     def _distribute_budget(
         self, active_chargers: list[_ActiveCharger], budget_watts: float

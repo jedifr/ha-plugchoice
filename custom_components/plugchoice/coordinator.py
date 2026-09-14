@@ -13,12 +13,14 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import PlugchoiceApiError, PlugchoiceAuthError, PlugchoiceClient
 from .const import (
     ACTIVE_CHARGING_POWER_THRESHOLD,
     BADGE_ENERGY_INTERVAL,
+    DELAYED_REFRESH_SECONDS,
     DISCOVERY_INTERVAL,
     DOMAIN,
     METER_IDLE_INTERVAL_MULTIPLIER,
@@ -95,6 +97,25 @@ class PlugchoiceChargersCoordinator(DataUpdateCoordinator[dict[str, dict[str, An
         # découverte. Distinct de "result" (qui est par borne) : un badge
         # n'est pas rattaché à une borne précise.
         self.badge_directory: dict[str, str] = {}
+
+    def async_request_delayed_refresh(
+        self, delay: float = DELAYED_REFRESH_SECONDS
+    ) -> None:
+        """Planifie un second rafraîchissement, `delay` secondes après l'appel.
+
+        À utiliser EN PLUS (pas à la place) du `async_request_refresh()`
+        immédiat qui suit l'envoi d'une commande de limite de charge :
+        celui-ci arrive souvent avant que Plugchoice n'ait indexé le
+        nouveau profil dans ses journaux OCPP, laissant potentiellement les
+        capteurs figés sur l'ancienne valeur jusqu'au prochain cycle
+        naturel de découverte (jusqu'à 10 min). Ce second passage, différé,
+        rattrape la valeur une fois le journal à jour.
+        """
+
+        async def _refresh(_now: Any) -> None:
+            await self.async_request_refresh()
+
+        async_call_later(self.hass, delay, _refresh)
 
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         try:

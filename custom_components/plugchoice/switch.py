@@ -186,6 +186,7 @@ class PlugchoiceBoostSwitch(CoordinatorEntity[PlugchoiceChargersCoordinator], Sw
             )
 
         await self.coordinator.async_request_refresh()
+        self.coordinator.async_request_delayed_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         self._boosted_chargers.discard(self._charger_id)
@@ -212,3 +213,4 @@ class PlugchoiceBoostSwitch(CoordinatorEntity[PlugchoiceChargersCoordinator], Sw
             )
             return
         await self.coordinator.async_request_refresh()
+        self.coordinator.async_request_delayed_refresh()
