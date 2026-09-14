@@ -65,6 +65,36 @@ async def test_number_set_value_registers_manual_override():
     assert entity.extra_state_attributes == {"load_balancing_override_active": True}
 
 
+async def test_number_native_value_survives_stale_readback_right_after_set(monkeypatch):
+    """La valeur envoyée ne doit pas "retomber" si le coordinator relit encore l'ancien profil.
+
+    Reproduit le bug rapporté : juste après avoir monté le slider, le
+    rafraîchissement déclenché par async_set_native_value arrive souvent
+    avant que Plugchoice n'ait indexé le nouveau profil -> sans sursis
+    optimiste, native_value republiait l'ancienne valeur (basse), donnant
+    l'impression que le slider ne progressait que par petits paliers.
+    """
+    coordinator = _coordinator({"limit": 6, "charging_rate_unit": "A"})  # ancien profil, pas encore à jour
+    coordinator.async_request_refresh = AsyncMock()
+    client = MagicMock()
+    client.async_set_charging_limit = AsyncMock(return_value={"status": "Accepted"})
+    entity = PlugchoiceChargingLimitNumber(coordinator, client, "c1", "Borne 1", {})
+    entity.async_write_ha_state = MagicMock()
+
+    await entity.async_set_native_value(32)
+
+    # Même si le coordinator (mocké) continue de relire l'ancien profil
+    # (6 A), l'entité affiche la valeur demandée juste après l'envoi.
+    assert coordinator.data["c1"]["charging_profile"]["limit"] == 6
+    assert entity.native_value == 32
+
+    # Une fois le sursis expiré, elle repasse en lecture live (ici toujours
+    # l'ancien profil puisque le mock ne change pas -> démontre juste que le
+    # sursis n'est pas permanent).
+    entity._fallback_set_at -= 999
+    assert entity.native_value == 6.0
+
+
 @pytest.mark.parametrize(
     ("profile", "expected"),
     [

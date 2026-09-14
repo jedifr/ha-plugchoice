@@ -6,6 +6,7 @@ valeur est modifiée dans Home Assistant.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
@@ -39,6 +40,15 @@ MIN_CURRENT = MIN_CHARGING_CURRENT
 # On suppose le connecteur 1 par défaut (cas le plus courant : une seule
 # prise par borne). Pour une borne multi-connecteurs, ce number pilote
 # uniquement le premier connecteur.
+
+# Après un envoi manuel, on affiche la valeur demandée pendant cette durée
+# même si le rafraîchissement du coordinator qui suit immédiatement relit
+# une valeur plus ancienne : le journal OCPP de Plugchoice met un peu de
+# temps à indexer la commande qu'on vient d'envoyer, donc une lecture
+# "live" trop rapide peut renvoyer le PRÉCÉDENT profil (valeur plus basse)
+# et faire visuellement "retomber" le slider juste après l'avoir monté —
+# ce qui donnait l'impression qu'il ne progressait que par petits paliers.
+NUMBER_OPTIMISTIC_GRACE_SECONDS = 20
 
 
 async def async_setup_entry(
@@ -135,8 +145,11 @@ class PlugchoiceChargingLimitNumber(
             configuration_url=f"https://app.plugchoice.com/chargers/{charger_id}",
         )
         # Repli affiché tant qu'aucun profil de charge n'a jamais été
-        # observé côté coordinator (ex: juste après ajout de la borne).
+        # observé côté coordinator (ex: juste après ajout de la borne), et
+        # aussi affiché en priorité juste après un envoi manuel (cf.
+        # NUMBER_OPTIMISTIC_GRACE_SECONDS).
         self._fallback_value: float | None = None
+        self._fallback_set_at: float | None = None
 
     def _current_known_limit(self) -> float | None:
         charger_info = (self.coordinator.data or {}).get(self._charger_id) or {}
@@ -155,7 +168,7 @@ class PlugchoiceChargingLimitNumber(
 
     @property
     def native_value(self) -> float | None:
-        """Toujours dérivé des données live du coordinator quand disponibles.
+        """Dérivé des données live du coordinator, avec un court sursis optimiste.
 
         Comme cette entité hérite de CoordinatorEntity, chaque
         rafraîchissement de chargers_coordinator (découverte périodique,
@@ -163,7 +176,18 @@ class PlugchoiceChargingLimitNumber(
         à jour l'affichage — y compris si la limite a été changée par le
         load balancer, le portail Plugchoice ou l'app, pas seulement par
         ce slider.
+
+        Juste après un envoi manuel, on privilégie quand même la valeur
+        demandée (`_fallback_value`) pendant NUMBER_OPTIMISTIC_GRACE_SECONDS :
+        le rafraîchissement déclenché par async_set_native_value arrive
+        souvent avant que Plugchoice n'ait indexé le nouveau profil dans ses
+        journaux OCPP, et lire "live" sans ce sursis réaffichait alors
+        l'ANCIENNE valeur — le slider semblait retomber juste après avoir
+        été monté, donnant l'impression de ne progresser que par paliers.
         """
+        if self._fallback_value is not None and self._fallback_set_at is not None:
+            if time.monotonic() - self._fallback_set_at < NUMBER_OPTIMISTIC_GRACE_SECONDS:
+                return self._fallback_value
         live = self._current_known_limit()
         return live if live is not None else self._fallback_value
 
@@ -201,9 +225,12 @@ class PlugchoiceChargingLimitNumber(
         # valeur jusqu'à la fin de la session (cf. load_balancer.py). Sans
         # effet si le load balancing n'est pas activé.
         self._manual_overrides[self._charger_id] = value
-        # Affichage optimiste immédiat, remplacé dès que le coordinator se
-        # rafraîchit par la valeur réellement confirmée par la borne.
+        # Affichage optimiste immédiat. Prioritaire sur une lecture "live"
+        # pendant NUMBER_OPTIMISTIC_GRACE_SECONDS (cf. native_value), pour
+        # ne pas retomber sur l'ancienne valeur le temps que Plugchoice
+        # indexe la commande qu'on vient d'envoyer.
         self._fallback_value = value
+        self._fallback_set_at = time.monotonic()
         self.async_write_ha_state()
         # Rafraîchit le profil de charge peu après pour refléter la
         # confirmation (ou le rejet) de la borne dans le capteur diagnostic.
