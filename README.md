@@ -9,6 +9,14 @@ Intégration personnalisée (`custom_component`) pour l'API Plugchoice (bornes
 de recharge VE, OCPP 1.6J), avec découverte automatique, contrôle à distance
 et répartition dynamique de puissance (load balancing) multi-bornes.
 
+> ⚠️ **Répartition de puissance (load balancing) temporairement désactivée
+> en dur** (depuis v0.1.9), le temps d'investiguer une instabilité de
+> limite de charge signalée sur une installation réelle — voir
+> [Chute périodique de la limite de charge](#chute-périodique-de-la-limite-de-charge-identifiée).
+> `LOAD_BALANCING_TEMPORARILY_DISABLED` dans `const.py` coupe le régulateur
+> **quelle que soit l'option cochée dans HA**. Le reste de l'intégration
+> (slider, Boost, boutons, capteurs) n'est pas concerné.
+
 ## Installation
 
 ### Via HACS (recommandé)
@@ -134,6 +142,24 @@ actif, même si la cible n'a pas bougé.
 - Le slider « Limite de charge » et le Boost posent aussi un profil à durée
   de vie de 3 min ; **sans load balancing actif, leur limite manuelle
   disparaît au bout de ~3 min** (pas encore de réémission côté entités).
+
+### Instabilité résiduelle — cause externe identifiée, load balancing désactivé en attendant
+
+Sur une installation réelle, la limite continuait de retomber (ex. 8 A)
+malgré un Boost actif et un régulateur qui recalculait correctement une
+cible à 32 A (confirmé par les logs debug de l'intégration). Le journal
+OCPP du **portail Plugchoice lui-même** a montré la cause : un
+`SetChargingProfile` à **`stackLevel 3`**, **`origine: hub`** — c'est-à-dire
+envoyé par le **backend Plugchoice**, pas par Home Assistant, ni par
+l'intégration (qui utilise toujours `stackLevel 4`). La fonctionnalité
+« Gestion de l'énergie » du portail a été vérifiée **désactivée** sur le
+compte concerné ; la source exacte côté Plugchoice reste donc à identifier
+(à escalader en support, avec la capture du journal OCPP comme preuve).
+
+En attendant, et le temps d'exclure toute contribution de notre régulateur
+au problème perçu, le load balancing est **désactivé en dur** dans le code
+(`LOAD_BALANCING_TEMPORARILY_DISABLED` dans `const.py`) — voir l'avertissement
+en tête de ce document.
 
 ### Causes précédemment écartées (avec confirmation utilisateur)
 

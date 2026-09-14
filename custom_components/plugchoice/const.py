@@ -35,6 +35,14 @@ DISCOVERY_INTERVAL = timedelta(minutes=10)
 BADGE_ENERGY_INTERVAL = timedelta(minutes=30)
 
 # --- Load balancing (répartition dynamique de puissance) ---
+# Désactivée EN DUR temporairement (indépendamment de l'option cochée dans
+# HA) le temps d'investiguer un problème sur une installation utilisateur
+# (limite de charge instable, cause pas formellement isolée entre le
+# régulateur HA et un acteur externe côté backend Plugchoice). Le reste de
+# l'intégration (slider, Boost, boutons, capteurs) n'est pas concerné.
+# Remettre à False pour réactiver — voir __init__.py:async_setup_entry.
+LOAD_BALANCING_TEMPORARILY_DISABLED = True
+
 CONF_LOAD_BALANCING_ENABLED = "load_balancing_enabled"
 CONF_GRID_POWER_ENTITY = "grid_power_entity_id"
 CONF_MAX_GRID_POWER = "max_grid_power_w"

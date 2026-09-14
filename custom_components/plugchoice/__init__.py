@@ -20,6 +20,7 @@ from .const import (
     DEFAULT_CONNECTOR_ID,
     DEFAULT_SCAN_INTERVAL_SECONDS,
     DOMAIN,
+    LOAD_BALANCING_TEMPORARILY_DISABLED,
 )
 from .coordinator import (
     PlugchoiceBadgeEnergyCoordinator,
@@ -73,7 +74,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "manual_current_overrides": {},
     }
 
-    if entry.options.get(CONF_LOAD_BALANCING_ENABLED):
+    if LOAD_BALANCING_TEMPORARILY_DISABLED:
+        if entry.options.get(CONF_LOAD_BALANCING_ENABLED):
+            _LOGGER.warning(
+                "Répartition de puissance : option activée dans la config, mais "
+                "temporairement désactivée en dur le temps d'une investigation "
+                "(LOAD_BALANCING_TEMPORARILY_DISABLED dans const.py) — aucun "
+                "cycle du régulateur ne tournera. Le slider, le Boost et les "
+                "boutons restent fonctionnels normalement."
+            )
+    elif entry.options.get(CONF_LOAD_BALANCING_ENABLED):
         load_balancer = PlugchoiceLoadBalancer(
             hass,
             entry,
