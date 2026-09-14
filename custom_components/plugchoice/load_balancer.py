@@ -259,6 +259,13 @@ class PlugchoiceLoadBalancer:
             power = self._safe_float(meter_data.get("power"), default=0.0)
             total_ev_power += power
             if power <= ACTIVE_CHARGING_POWER_THRESHOLD:
+                _LOGGER.debug(
+                    "Load balancing: borne %s inactive ce cycle (puissance=%sW <= seuil=%sW) "
+                    "— aucune commande envoyée, exclue du calcul",
+                    charger_id,
+                    power,
+                    ACTIVE_CHARGING_POWER_THRESHOLD,
+                )
                 continue
 
             voltage = self._safe_float(meter_data.get("voltage_l1"), default=DEFAULT_ASSUMED_VOLTAGE)
@@ -414,6 +421,16 @@ class PlugchoiceLoadBalancer:
             # calcul peut se voir écrasée par une valeur déjà obsolète.
             live_exempt = charger.exempt or charger.charger_id in self._boosted_chargers
             manual_override = self._manual_overrides.get(charger.charger_id)
+            _LOGGER.debug(
+                "Load balancing: borne %s — priorité_absolue=%s, boostée=%s "
+                "(dans boosted_chargers=%s), réglage_manuel=%s, source=%s",
+                charger.charger_id,
+                charger.exempt and charger.charger_id not in self._boosted_chargers,
+                charger.charger_id in self._boosted_chargers,
+                sorted(self._boosted_chargers),
+                manual_override,
+                "exemption" if live_exempt else ("manuel" if manual_override is not None else "budget partagé"),
+            )
             if live_exempt:
                 # Boost / priorité absolue l'emporte sur un éventuel réglage
                 # manuel plus ancien : c'est une demande explicite de max.
