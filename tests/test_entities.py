@@ -32,17 +32,34 @@ def _coordinator(profile: dict | None) -> MagicMock:
     ],
 )
 def test_number_current_known_limit_unit_filter(profile, expected):
-    entity = PlugchoiceChargingLimitNumber(_coordinator(profile), MagicMock(), "c1", "Borne 1")
+    entity = PlugchoiceChargingLimitNumber(
+        _coordinator(profile), MagicMock(), "c1", "Borne 1", {}
+    )
     assert entity._current_known_limit() == expected
 
 
 def test_number_native_value_falls_back_when_watts():
     entity = PlugchoiceChargingLimitNumber(
-        _coordinator({"limit": 7000, "charging_rate_unit": "W"}), MagicMock(), "c1", "Borne 1"
+        _coordinator({"limit": 7000, "charging_rate_unit": "W"}), MagicMock(), "c1", "Borne 1", {}
     )
     # Aucune valeur en A connue et aucune valeur optimiste envoyée -> None,
     # surtout pas 7000 affiché comme des ampères sur le slider.
     assert entity.native_value is None
+
+
+async def test_number_set_value_registers_manual_override():
+    """Un changement du slider enregistre l'override lu par le load balancer."""
+    coordinator = _coordinator({"limit": 6, "charging_rate_unit": "A"})
+    coordinator.async_request_refresh = AsyncMock()
+    client = MagicMock()
+    client.async_set_charging_limit = AsyncMock(return_value={"status": "Accepted"})
+    overrides: dict = {}
+    entity = PlugchoiceChargingLimitNumber(coordinator, client, "c1", "Borne 1", overrides)
+
+    await entity.async_set_native_value(24)
+
+    assert overrides == {"c1": 24}
+    assert entity.extra_state_attributes == {"load_balancing_override_active": True}
 
 
 @pytest.mark.parametrize(

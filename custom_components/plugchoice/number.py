@@ -48,6 +48,7 @@ async def async_setup_entry(
     domain_data = hass.data[DOMAIN][entry.entry_id]
     chargers_coordinator: PlugchoiceChargersCoordinator = domain_data["chargers_coordinator"]
     client = domain_data["client"]
+    manual_current_overrides: dict[str, float] = domain_data["manual_current_overrides"]
 
     known_charger_ids: set[str] = set()
 
@@ -66,6 +67,7 @@ async def async_setup_entry(
                     client,
                     charger_id,
                     _display_name(charger_id, charger_info),
+                    manual_current_overrides,
                 )
             ]
         )
@@ -95,6 +97,12 @@ class PlugchoiceChargingLimitNumber(
     avec le profil réellement actif si celui-ci a été changé depuis le
     portail Plugchoice ou l'app — consulter le capteur "Profil de charge
     actif" pour la valeur réellement appliquée par la borne).
+
+    Si le load balancing est actif, un changement ici enregistre aussi un
+    réglage manuel dans `manual_current_overrides` (partagé avec
+    load_balancer.py) : la borne est alors exemptée du partage de budget et
+    le régulateur maintient cette valeur jusqu'à la fin de la session, au
+    lieu de l'écraser à son cycle suivant (15 s).
     """
 
     _attr_has_entity_name = True
@@ -112,10 +120,12 @@ class PlugchoiceChargingLimitNumber(
         client: PlugchoiceClient,
         charger_id: str,
         device_name: str,
+        manual_current_overrides: dict[str, float],
     ) -> None:
         super().__init__(coordinator)
         self._client = client
         self._charger_id = charger_id
+        self._manual_overrides = manual_current_overrides
         self._attr_unique_id = f"{charger_id}_charging_limit"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, charger_id)},
@@ -158,6 +168,12 @@ class PlugchoiceChargingLimitNumber(
         return live if live is not None else self._fallback_value
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "load_balancing_override_active": self._charger_id in self._manual_overrides,
+        }
+
+    @property
     def native_max_value(self) -> float:
         charger_info = (self.coordinator.data or {}).get(self._charger_id) or {}
         max_current = charger_info.get("max_current")
@@ -180,6 +196,11 @@ class PlugchoiceChargingLimitNumber(
                 err,
             )
             raise
+        # Enregistre le réglage manuel : si le load balancing est actif, ça
+        # exempte cette borne du partage de budget et fait tenir cette
+        # valeur jusqu'à la fin de la session (cf. load_balancer.py). Sans
+        # effet si le load balancing n'est pas activé.
+        self._manual_overrides[self._charger_id] = value
         # Affichage optimiste immédiat, remplacé dès que le coordinator se
         # rafraîchit par la valeur réellement confirmée par la borne.
         self._fallback_value = value

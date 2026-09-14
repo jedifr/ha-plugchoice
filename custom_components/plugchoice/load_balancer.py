@@ -89,6 +89,7 @@ class PlugchoiceLoadBalancer:
         chargers_coordinator: PlugchoiceChargersCoordinator,
         ensure_meter_coordinator: EnsureMeterCoordinator,
         boosted_chargers: set[str],
+        manual_current_overrides: dict[str, float],
     ) -> None:
         self.hass = hass
         self._entry = entry
@@ -99,6 +100,13 @@ class PlugchoiceLoadBalancer:
         # bornes actuellement en mode "Boost" manuel : exemptées du partage
         # de budget, reçoivent directement leur courant maximal.
         self._boosted_chargers = boosted_chargers
+        # Dict partagé (même objet que celui manipulé par number.py)
+        # {charger_id: courant demandé en A} : un réglage manuel du slider
+        # "Limite de charge" exempte la borne du partage de budget et sert
+        # cette valeur telle quelle jusqu'à la fin de la session — sans ça,
+        # le régulateur écrase le réglage manuel dès son cycle suivant
+        # (15 s), ce qui rend le slider inutilisable pendant une charge.
+        self._manual_overrides = manual_current_overrides
 
         # (timestamp monotone, valeur en W) — fenêtre glissante des relevés
         # du capteur choisi.
@@ -320,30 +328,39 @@ class PlugchoiceLoadBalancer:
         active_chargers, total_ev_power = await self._build_active_chargers(chargers)
 
         # Fin de session détectée : une borne active au cycle précédent ne
-        # l'est plus maintenant. On ne coupe le Boost manuel que si la
-        # transaction est VRAIMENT terminée (stopped_at renseigné) — un
-        # simple creux de puissance transitoire (pause de charge normale
-        # sur certains véhicules) ne doit pas suffire, sinon le Boost se
-        # coupe par erreur en pleine session toujours en cours.
+        # l'est plus maintenant. On ne coupe le Boost manuel / le réglage
+        # manuel de limite que si la transaction est VRAIMENT terminée
+        # (stopped_at renseigné) — un simple creux de puissance transitoire
+        # (pause de charge normale sur certains véhicules) ne doit pas
+        # suffire, sinon ils se coupent par erreur en pleine session
+        # toujours en cours.
         current_active_ids = {charger.charger_id for charger in active_chargers}
         ended_ids = self._previously_active_ids - current_active_ids
-        boost_cleared = False
+        exemption_cleared = False
         for charger_id in ended_ids:
-            if charger_id not in self._boosted_chargers:
+            if charger_id not in self._boosted_chargers and charger_id not in self._manual_overrides:
                 continue
             charger_info = chargers.get(charger_id) or {}
             transaction = charger_info.get("last_transaction") or {}
             if transaction.get("stopped_at") is None:
-                # Toujours pas de fin confirmée : on laisse le Boost actif,
-                # même si la puissance mesurée est momentanément retombée
-                # sous le seuil "actif".
+                # Toujours pas de fin confirmée : on laisse l'exemption
+                # active, même si la puissance mesurée est momentanément
+                # retombée sous le seuil "actif".
                 continue
-            self._boosted_chargers.discard(charger_id)
-            boost_cleared = True
-            _LOGGER.info(
-                "Load balancing: session terminée sur %s, Boost désactivé automatiquement",
-                charger_id,
-            )
+            if charger_id in self._boosted_chargers:
+                self._boosted_chargers.discard(charger_id)
+                exemption_cleared = True
+                _LOGGER.info(
+                    "Load balancing: session terminée sur %s, Boost désactivé automatiquement",
+                    charger_id,
+                )
+            if charger_id in self._manual_overrides:
+                self._manual_overrides.pop(charger_id, None)
+                exemption_cleared = True
+                _LOGGER.info(
+                    "Load balancing: session terminée sur %s, réglage manuel de limite effacé",
+                    charger_id,
+                )
         self._previously_active_ids = current_active_ids
 
         # Puissance disponible pour l'ensemble des bornes, en plus de ce
@@ -354,21 +371,30 @@ class PlugchoiceLoadBalancer:
         async_dispatcher_send(self.hass, self.signal)
 
         if not active_chargers:
-            if boost_cleared:
-                # Rafraîchit pour que l'interrupteur "Boost" reflète tout
-                # de suite la désactivation, sans attendre le prochain
-                # cycle naturel de découverte (jusqu'à 10 min).
+            if exemption_cleared:
+                # Rafraîchit pour que l'interrupteur "Boost" / le slider
+                # "Limite de charge" reflètent tout de suite la
+                # désactivation, sans attendre le prochain cycle naturel de
+                # découverte (jusqu'à 10 min).
                 await self._chargers_coordinator.async_request_refresh()
             return
 
-        # Les bornes exemptées (boost manuel ou badge "priorité absolue")
-        # reçoivent directement leur maximum, sans passer par le partage.
-        # Les autres se répartissent le budget normalement — comme leur
-        # consommation réelle (y compris celle des bornes exemptées) est
-        # déjà comptée dans total_ev_power ci-dessus, l'effet d'un boost
-        # se répercute naturellement sur le budget des cycles suivants.
+        # Trois catégories de bornes actives :
+        # - exemptées (boost manuel ou badge "priorité absolue") : reçoivent
+        #   directement leur maximum ;
+        # - réglage manuel de limite (slider "Limite de charge" touché en
+        #   cours de session) : reçoivent la valeur demandée telle quelle,
+        #   jusqu'à la fin de la session ;
+        # - les autres se répartissent le budget normalement.
+        # Dans tous les cas, leur consommation réelle est déjà comptée dans
+        # total_ev_power ci-dessus, donc son effet se répercute naturellement
+        # sur le budget des cycles suivants pour les bornes normales.
         exempt_chargers = [c for c in active_chargers if c.exempt]
-        normal_chargers = [c for c in active_chargers if not c.exempt]
+        normal_chargers = [
+            c
+            for c in active_chargers
+            if not c.exempt and c.charger_id not in self._manual_overrides
+        ]
 
         targets_watts: dict[str, float] = {
             charger.charger_id: charger.max_current * charger.voltage * charger.phases
@@ -378,7 +404,7 @@ class PlugchoiceLoadBalancer:
             self._distribute_budget(normal_chargers, max(self.available_ev_budget, 0.0))
         )
 
-        any_change_sent = boost_cleared
+        any_change_sent = exemption_cleared
         for charger in active_chargers:
             # Revérifié ici (pas seulement au moment de la construction de
             # la liste ci-dessus) : si le switch "Boost" a été activé
@@ -387,10 +413,20 @@ class PlugchoiceLoadBalancer:
             # plus à jour possible, sinon une activation concurrente au
             # calcul peut se voir écrasée par une valeur déjà obsolète.
             live_exempt = charger.exempt or charger.charger_id in self._boosted_chargers
+            manual_override = self._manual_overrides.get(charger.charger_id)
             if live_exempt:
+                # Boost / priorité absolue l'emporte sur un éventuel réglage
+                # manuel plus ancien : c'est une demande explicite de max.
                 target_current = round(charger.raw_max_current)
                 target_current = max(
                     MIN_CHARGING_CURRENT, min(target_current, charger.raw_max_current)
+                )
+            elif manual_override is not None:
+                # Valeur demandée par l'utilisateur, plafonnée au max
+                # matériel réel de la borne (pas au plafond de badge, comme
+                # pour une exemption) : c'est un choix explicite.
+                target_current = max(
+                    MIN_CHARGING_CURRENT, min(round(manual_override), round(charger.raw_max_current))
                 )
             else:
                 target_current = round(

@@ -65,6 +65,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Rempli par switch.py : ensemble des charger_id actuellement en
         # mode "Boost" (exemptés du partage de budget par le load balancer).
         "boosted_chargers": set(),
+        # Rempli par number.py : {charger_id: courant demandé en A} pour un
+        # réglage manuel du slider "Limite de charge" en cours de session —
+        # exempte la borne du partage de budget jusqu'à la fin de la
+        # session (cf. load_balancer.py), sans quoi le régulateur écrase le
+        # réglage manuel dès son cycle suivant.
+        "manual_current_overrides": {},
     }
 
     if entry.options.get(CONF_LOAD_BALANCING_ENABLED):
@@ -75,6 +81,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             chargers_coordinator,
             lambda charger_id: async_ensure_meter_coordinator(hass, entry, charger_id),
             hass.data[DOMAIN][entry.entry_id]["boosted_chargers"],
+            hass.data[DOMAIN][entry.entry_id]["manual_current_overrides"],
         )
         load_balancer.async_start()
         entry.async_on_unload(load_balancer.async_stop)

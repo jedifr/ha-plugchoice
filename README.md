@@ -54,7 +54,7 @@ l'intégration.
 | `coordinator.py` | Trois `DataUpdateCoordinator` : `PlugchoiceChargersCoordinator` (découverte des bornes + badges + transactions, 10 min), `PlugchoiceMeterCoordinator` (relevés temps réel par borne, 60 s, un par borne), `PlugchoiceBadgeEnergyCoordinator` (agrégation d'énergie cumulée par badge, 30 min). |
 | `config_flow.py` | Flow de configuration (token) + options (connexion, badges nommés, répartition de puissance, priorités des badges). |
 | `sensor.py` | Tous les capteurs : mesures temps réel, infos borne, sessions, énergie par badge, diagnostic load balancing. |
-| `number.py` | Slider "Limite de charge" par borne (action `charge-limit`). |
+| `number.py` | Slider "Limite de charge" par borne (action `charge-limit`). Si le load balancing est actif, un réglage manuel exempte la borne du partage de budget jusqu'à la fin de la session (voir `load_balancer.py`). |
 | `lock.py` | Verrou "borne disponible/indisponible" (`settings/cable-lock`). |
 | `button.py` | Boutons "Démarrer/Arrêter la charge" (`actions/start` / `actions/stop`, avec garde-fou : refus explicite si une session est déjà active ou si le connecteur n'est pas prêt) et "Effacer la limite de charge" (`actions/clear-charge-limit`, désactivé par défaut). |
 | `select.py` | Sélecteur de badge à utiliser pour démarrer une charge. |
@@ -78,8 +78,12 @@ l'intégration.
   - priorité par badge (1-10) + plafond de courant optionnel par badge
   - mode "priorité absolue" par badge (ignore le budget partagé)
   - interrupteur "Boost" manuel par borne (ponctuel, prioritaire sur tout)
+  - **réglage manuel du slider "Limite de charge"** : exempte la borne du
+    partage de budget et fait tenir la valeur demandée jusqu'à la fin de
+    la session, sans quoi le régulateur l'écrase à son cycle suivant (15 s)
   - détection de fin de session (basée sur `stopped_at` réel, pas sur un
-    simple creux de puissance transitoire)
+    simple creux de puissance transitoire) — coupe aussi bien le Boost que
+    le réglage manuel
 
 ## ⚠️ Points d'incertitude à connaître avant de continuer le développement
 
@@ -140,8 +144,9 @@ exclues.
 
 ## Autres limitations connues
 
-- Le "Boost" et l'état "borne boostée" sont en mémoire uniquement (non
-  persistés) : ils repassent à l'état par défaut au redémarrage de HA.
+- Le "Boost" et les réglages manuels de limite (exemption du partage de
+  budget) sont en mémoire uniquement (non persistés) : ils repassent à
+  l'état par défaut au redémarrage de HA.
 - Le régulateur déduit le nombre de phases réellement utilisées par le
   véhicule à partir des courants mesurés L1/L2/L3 (un véhicule monophasé
   n'est donc plus bridé comme s'il tirait sur 3 phases). Tant qu'aucun
