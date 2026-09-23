@@ -106,6 +106,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # grisé indéfiniment dans HA, rien ne le retirant jamais de lui-même.
     await _async_prune_stale_charger_devices(hass, entry, chargers_coordinator)
 
+    # Idem pour l'appareil virtuel "Répartition de puissance" : tant que
+    # LOAD_BALANCING_TEMPORARILY_DISABLED est actif, aucune entité n'est
+    # recréée dessus (cf. sensor.py), mais l'appareil créé par une version
+    # antérieure (régulateur alors actif) restait affiché, grisé, sans
+    # recours — on le retire explicitement.
+    await _async_prune_disabled_load_balancing_device(hass, entry)
+
     @callback
     def _schedule_prune_stale_devices() -> None:
         hass.async_create_task(
@@ -167,6 +174,31 @@ async def _async_prune_stale_charger_devices(
                 )
                 device_registry.async_remove_device(device.id)
             break
+
+
+async def _async_prune_disabled_load_balancing_device(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Retire l'appareil "Répartition de puissance" tant que la fonction est coupée.
+
+    `sensor.py` ne recrée ses 2 entités que si `load_balancer` a été
+    instancié (donc jamais tant que `LOAD_BALANCING_TEMPORARILY_DISABLED`
+    est actif) : sans ce nettoyage, un appareil créé par une version
+    antérieure (régulateur alors actif) restait affiché indéfiniment,
+    grisé, sans plus aucune donnée.
+    """
+    if not LOAD_BALANCING_TEMPORARILY_DISABLED:
+        return
+
+    identifier = f"{entry.entry_id}_load_balancing"
+    device_registry = dr.async_get(hass)
+    device = device_registry.async_get_device(identifiers={(DOMAIN, identifier)})
+    if device is not None:
+        _LOGGER.info(
+            "Répartition de puissance désactivée : retrait de son appareil "
+            "diagnostic dans Home Assistant"
+        )
+        device_registry.async_remove_device(device.id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

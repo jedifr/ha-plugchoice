@@ -6,7 +6,10 @@ from unittest.mock import MagicMock
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.plugchoice import _async_prune_stale_charger_devices
+from custom_components.plugchoice import (
+    _async_prune_disabled_load_balancing_device,
+    _async_prune_stale_charger_devices,
+)
 from custom_components.plugchoice.const import DOMAIN
 
 
@@ -65,3 +68,31 @@ async def test_prune_is_a_noop_when_nothing_disappeared(hass):
     await _async_prune_stale_charger_devices(hass, entry, chargers_coordinator)
 
     assert device_registry.async_get(device.id) is not None
+
+
+async def test_prune_removes_orphaned_load_balancing_device(hass):
+    """L'appareil "Répartition de puissance" d'une version antérieure disparaît.
+
+    Tant que LOAD_BALANCING_TEMPORARILY_DISABLED est actif, sensor.py ne
+    recrée jamais ses entités ; un appareil laissé par une version où le
+    régulateur tournait encore doit donc être retiré, pas laissé grisé.
+    """
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+
+    device_registry = dr.async_get(hass)
+    lb_device = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"{entry.entry_id}_load_balancing")},
+        name="Répartition de puissance",
+    )
+    other_charger = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "charger-current")},
+        name="Borne actuelle",
+    )
+
+    await _async_prune_disabled_load_balancing_device(hass, entry)
+
+    assert device_registry.async_get(lb_device.id) is None
+    assert device_registry.async_get(other_charger.id) is not None
