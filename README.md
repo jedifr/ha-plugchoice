@@ -72,7 +72,9 @@ l'intégration.
 ## Fonctionnalités principales
 
 - Découverte automatique des bornes, badges RFID (noms tirés des cartes
-  Plugchoice), transactions.
+  Plugchoice), transactions — et **nettoyage automatique** de l'appareil HA
+  d'une borne qui a disparu côté Plugchoice (remplacée, supprimée), sans
+  quoi il restait grisé indéfiniment dans Home Assistant.
 - Capteurs temps réel (courants, tensions, puissance, énergie), infos borne
   (fabricant, modèle, firmware, ID, courant max), sessions (en cours /
   dernière terminée), profil de charge actif (lu depuis les logs OCPP),

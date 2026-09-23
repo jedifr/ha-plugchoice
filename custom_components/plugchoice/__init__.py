@@ -10,8 +10,10 @@ import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_TOKEN, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceEntry
 
 from .api import PlugchoiceApiError, PlugchoiceClient
 from .const import (
@@ -99,8 +101,72 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
+    # Nettoyage des appareils "orphelins" : une borne renommée/remplacée
+    # côté Plugchoice (nouvel UUID) laisserait sinon l'ancien appareil
+    # grisé indéfiniment dans HA, rien ne le retirant jamais de lui-même.
+    await _async_prune_stale_charger_devices(hass, entry, chargers_coordinator)
+
+    @callback
+    def _schedule_prune_stale_devices() -> None:
+        hass.async_create_task(
+            _async_prune_stale_charger_devices(hass, entry, chargers_coordinator)
+        )
+
+    entry.async_on_unload(
+        chargers_coordinator.async_add_listener(_schedule_prune_stale_devices)
+    )
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry: DeviceEntry
+) -> bool:
+    """Autorise le retrait manuel de n'importe quel appareil de l'intégration.
+
+    Sans ceci, Home Assistant masque le bouton "Supprimer l'appareil" tant
+    que l'intégration ne confirme pas explicitement que c'est sûr — un
+    appareil orphelin (borne remplacée/supprimée côté Plugchoice) resterait
+    alors bloqué, grisé, sans recours manuel (le nettoyage automatique de
+    `_async_prune_stale_charger_devices` couvre déjà le cas normal, ceci
+    n'est qu'un filet de sécurité).
+    """
+    return True
+
+
+async def _async_prune_stale_charger_devices(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    chargers_coordinator: PlugchoiceChargersCoordinator,
+) -> None:
+    """Retire les appareils de borne dont l'UUID n'existe plus côté Plugchoice.
+
+    L'intégration ajoute un appareil par borne découverte mais n'en a
+    jamais retiré : une borne renommée avec un nouvel UUID (remplacement
+    matériel) ou supprimée côté Plugchoice laissait l'ancien appareil grisé
+    dans HA indéfiniment. Ne touche ni aux appareils "badge" (identifiant
+    `badge_<id>`) ni à celui du load balancing (identifiant
+    `<entry_id>_load_balancing`), qui ne sont pas des bornes.
+    """
+    known_charger_ids = set(chargers_coordinator.data or {})
+    load_balancing_identifier = f"{entry.entry_id}_load_balancing"
+    device_registry = dr.async_get(hass)
+
+    for device in dr.async_entries_for_config_entry(device_registry, entry.entry_id):
+        for identifier_domain, identifier_value in device.identifiers:
+            if identifier_domain != DOMAIN:
+                continue
+            if identifier_value.startswith("badge_") or identifier_value == load_balancing_identifier:
+                break
+            if identifier_value not in known_charger_ids:
+                _LOGGER.info(
+                    "Borne %s introuvable côté Plugchoice : retrait de l'appareil "
+                    "orphelin correspondant dans Home Assistant",
+                    identifier_value,
+                )
+                device_registry.async_remove_device(device.id)
+            break
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
